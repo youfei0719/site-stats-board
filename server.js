@@ -180,13 +180,19 @@ app.get('/api/overview', async (req, res) => {
 
 // ---------- 趋势数据抓取（抽出复用）----------
 // 合并 pageviews + sessions 为统一时间点序列；x 为毫秒时间戳
+function parseBucket(x) {
+  if (typeof x === 'number') return x;
+  if (typeof x !== 'string' || x.length === 0) return 0;
+  const s = /[zZ]|[+-][0-9][0-9]:?[0-9][0-9]$/.test(x) ? x : x + '+08:00';
+  const ms = Date.parse(s);
+  return Number.isFinite(ms) ? ms : 0;
+}
+
 function mergePvSe(pvArr, seArr) {
   const byTime = new Map();
   const put = (arr, key) => {
     for (const p of (Array.isArray(arr) ? arr : [])) {
-      const t = typeof p.x === 'number' ? p.x
-        : typeof p.x === 'string' ? (Number.isFinite(Date.parse(p.x)) ? Date.parse(p.x) : 0)
-        : 0;
+      const t = parseBucket(p.x);
       if (!byTime.has(t)) byTime.set(t, { t, pageviews: 0, visits: 0 });
       byTime.get(t)[key] = num(p.y);
     }
@@ -197,7 +203,7 @@ function mergePvSe(pvArr, seArr) {
 }
 
 async function getPageviews(websiteId, start, end, unit) {
-  const data = await umami(`/websites/${websiteId}/pageviews`, { startAt: start, endAt: end, unit });
+  const data = await umami(`/websites/${websiteId}/pageviews`, { startAt: start, endAt: end, unit, timezone: 'Asia/Shanghai' });
   // 兼容多种返回形状
   const pvArr = Array.isArray(data?.pageviews) ? data.pageviews
     : Array.isArray(data) ? data : [];
@@ -427,12 +433,15 @@ app.get('/api/pages', async (req, res) => {
   try {
     const site = findSite(req.query.site);
     const { start, end } = resolveRange(req.query.range);
-    const rows = await fetchMetrics(site.id, 'path', start, end);
-    const items = rows.slice(0, 20).map((r) => ({
-      name: String(r.name ?? r.x ?? ''), // v3 expanded 维度值在 name 字段
-      pageviews: num(r.pageviews ?? r.y),
-      visitors: num(r.visitors),
-    }));
+    const rows = await fetchMetrics(site.id, 'title', start, end);
+    const items = rows
+      .map((r) => ({
+        name: String(r.name ?? r.x ?? ''), // v3 expanded 维度值在 name 字段
+        pageviews: num(r.pageviews ?? r.y),
+        visitors: num(r.visitors),
+      }))
+      .filter((it) => it.name && /[.](css|js|png|jpg|svg|ico|woff2)$/i.test(it.name) === false)
+      .slice(0, 20);
     res.json({ site: site.name, items, updatedAt: Date.now() });
   } catch (e) {
     res.status(502).json({ error: e.message });
