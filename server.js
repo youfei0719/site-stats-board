@@ -184,7 +184,9 @@ function mergePvSe(pvArr, seArr) {
   const byTime = new Map();
   const put = (arr, key) => {
     for (const p of (Array.isArray(arr) ? arr : [])) {
-      const t = num(p.x);
+      const t = typeof p.x === 'number' ? p.x
+        : typeof p.x === 'string' ? (Number.isFinite(Date.parse(p.x)) ? Date.parse(p.x) : 0)
+        : 0;
       if (!byTime.has(t)) byTime.set(t, { t, pageviews: 0, visits: 0 });
       byTime.get(t)[key] = num(p.y);
     }
@@ -213,7 +215,7 @@ function extractPrevSeries(raw) {
   for (const k of ['sessions_prev', 'sessionsPrev', 'prev_sessions']) {
     if (Array.isArray(raw[k])) { se = raw[k]; break; }
   }
-  for (const k of ['prev', 'previous', 'comparison']) {
+  for (const k of ['compare', 'prev', 'previous', 'comparison']) {
     const o = raw[k];
     if (o && typeof o === 'object') {
       if (!pv && Array.isArray(o.pageviews)) pv = o.pageviews;
@@ -318,7 +320,7 @@ app.get('/api/breakdown', async (req, res) => {
 
     const rows = await fetchMetrics(site.id, type, start, end);
     const items = rows.slice(0, limit).map((r) => ({
-      name: String(r.x ?? ''),
+      name: String(r.name ?? r.x ?? ''), // v3 expanded 维度值在 name 字段
       pageviews: num(r.pageviews ?? r.y), // expanded 有 pageviews 字段；普通 metrics 只有 y
       visitors: num(r.visitors),
     }));
@@ -349,18 +351,23 @@ app.get('/api/channel', async (req, res) => {
   try {
     const site = findSite(req.query.site);
     const { start, end } = resolveRange(req.query.range);
-    const rows = await fetchMetrics(site.id, 'referrer', start, end);
+    const [rows, totals] = await Promise.all([
+      fetchMetrics(site.id, 'referrer', start, end),
+      umami(`/websites/${site.id}/stats`, { startAt: start, endAt: end }),
+    ]);
 
     const chMap = new Map(CHANNEL_ORDER.map((c) => [c, { channel: c, visitors: 0, pageviews: 0 }]));
     const domMap = new Map();
     const engMap = new Map();
+    let refV = 0, refP = 0;
     for (const r of rows) {
-      const host = hostnameOf(r.x);
+      const host = hostnameOf(r.name ?? r.x);
       const ch = channelOf(host);
       const pv = num(r.pageviews ?? r.y);
       const vs = num(r.visitors);
       const c = chMap.get(ch);
       c.visitors += vs; c.pageviews += pv;
+      refV += vs; refP += pv;
       const dk = host || '直接访问';
       if (!domMap.has(dk)) domMap.set(dk, { name: host || '直接访问', visitors: 0, pageviews: 0 });
       const d = domMap.get(dk);
@@ -372,6 +379,12 @@ app.get('/api/channel', async (req, res) => {
         e.visitors += vs; e.pageviews += pv;
       }
     }
+    // 直接访问 = 总量 − 有来源部分（Umami 不为直接访问产生来源行）
+    const directV = Math.max(num(totals.visitors) - refV, 0);
+    const directP = Math.max(num(totals.pageviews) - refP, 0);
+    const dc = chMap.get('直接访问'); dc.visitors += directV; dc.pageviews += directP;
+    if (!domMap.has('直接访问')) domMap.set('直接访问', { name: '直接访问', visitors: 0, pageviews: 0 });
+    const dd = domMap.get('直接访问'); dd.visitors += directV; dd.pageviews += directP;
     const byPv = (a, b) => b.pageviews - a.pageviews;
     res.json({
       site: site.name,
@@ -416,7 +429,7 @@ app.get('/api/pages', async (req, res) => {
     const { start, end } = resolveRange(req.query.range);
     const rows = await fetchMetrics(site.id, 'path', start, end);
     const items = rows.slice(0, 20).map((r) => ({
-      name: String(r.x ?? ''),
+      name: String(r.name ?? r.x ?? ''), // v3 expanded 维度值在 name 字段
       pageviews: num(r.pageviews ?? r.y),
       visitors: num(r.visitors),
     }));
@@ -433,12 +446,21 @@ app.get('/api/realtime-detail', async (req, res) => {
   const empty = { site: site.name, urls: [], referrers: [], countries: [], updatedAt: Date.now() };
   try {
     const data = await umami(`/realtime/${site.id}`);
-    const norm = (arr) => (Array.isArray(arr) ? arr : []).slice(0, 10).map((r) => ({
-      name: String(r.x ?? r.name ?? r.url ?? ''),
-      count: num(r.y ?? r.count ?? r.visitors ?? r.pageviews),
-    })).filter((r) => r.name);
+    const norm = (val) => {
+      const arr = Array.isArray(val) ? val
+        : (val && typeof val === 'object')
+          ? Object.entries(val).map(([name, count]) => ({ name, count }))
+          : [];
+      return arr.slice(0, 10).map((r) => ({
+        name: String(r.name ?? r.x ?? r.url ?? ''),
+        count: num(r.count ?? r.y ?? r.visitors ?? r.pageviews),
+      })).filter((r) => r.name);
+    };
     const pick = (...keys) => {
-      for (const k of keys) if (Array.isArray(data?.[k])) return data[k];
+      for (const k of keys) {
+        const v = data?.[k];
+        if (Array.isArray(v) || (v && typeof v === 'object')) return v;
+      }
       return [];
     };
     res.json({
