@@ -94,7 +94,7 @@ function buildSeg(el, items, getKey, getLabel, current, onPick) {
 
 // ---------- 各区块渲染 ----------
 async function loadOverview() {
-  const d = await api('/api/overview?' + q({ site: state.site, range: state.range }));
+  const d = await api('api/overview?' + q({ site: state.site, range: state.range }));
   rollNumber($('kpi-visitors'), d.visitors, fmtInt);
   rollNumber($('kpi-pageviews'), d.pageviews, fmtInt);
   rollNumber($('kpi-visits'), d.visits, fmtInt);
@@ -114,7 +114,7 @@ async function loadOverview() {
 
 let chart = null;
 async function loadTrend() {
-  const d = await api('/api/trend?' + q({ site: state.site, range: state.range }));
+  const d = await api('api/trend?' + q({ site: state.site, range: state.range }));
   const labels = d.points.map((p) => {
     const dt = new Date(p.t);
     return d.unit === 'day'
@@ -158,7 +158,7 @@ async function loadTrend() {
 }
 
 async function loadBreakdown() {
-  const d = await api('/api/breakdown?' + q({ site: state.site, range: state.range, type: state.btype }));
+  const d = await api('api/breakdown?' + q({ site: state.site, range: state.range, type: state.btype }));
   const body = $('breakdown-body');
   if (!d.items.length) {
     body.innerHTML = '<div class="empty">该维度暂无数据</div>';
@@ -188,7 +188,7 @@ function escapeHtml(s) {
 }
 
 async function loadRealtime() {
-  const d = await api('/api/realtime?' + q({ site: state.site }));
+  const d = await api('api/realtime?' + q({ site: state.site }));
   rollNumber($('realtime-value'), d.visitors, fmtInt);
 }
 
@@ -211,7 +211,7 @@ async function loadAll() {
 
 // ---------- 初始化 ----------
 async function init() {
-  const sites = await api('/api/sites');
+  const sites = await api('api/sites');
   state.sites = sites;
   state.site = sites[0]?.name || '';
 
