@@ -1,12 +1,19 @@
 // ============================================================
-// 网站数据看板 · 前端
-// 设计：BoardUI 卡片 + 分段控件；图表走 Lieflat Glance 单色语法；
-// KPI 数值过渡用 beUI Number Animation 的思路（600ms easeOut 补间）
+// 网站数据看板 v2 · 前端
+// 信息架构融合：GA4（左侧分组导航 / 指标选择器 / 上期虚线对比 / 实时卡片）
+// ＋ Plausible（KPI 条 → 大趋势图 → 明细表紧凑总览）＋ 百度统计（渠道分组 /
+// 搜索引擎表 / 受访页面列定义）＋ 友盟+（实时呈现 / 密报表）＋ Mixpanel
+// （Boards 留白节奏 / 克制条形）。视觉只用 BoardUI token。
 // ============================================================
 const $ = (id) => document.getElementById(id);
 const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-const state = { site: '', range: 'today', btype: 'url', sites: [] };
+const state = {
+  site: '', range: 'today', view: 'overview',
+  ovMetric: 'visitors', ovCompare: false,
+  tfMetric: 'visitors', tfCompare: false,
+  sites: [],
+};
 
 // ---------- 格式化 ----------
 function fmtInt(n) { return Math.round(n).toLocaleString('zh-CN'); }
@@ -20,8 +27,11 @@ function fmtTime(t) {
   const d = new Date(t);
   return (d.getMonth() + 1) + '-' + d.getDate() + ' ' + String(d.getHours()).padStart(2, '0') + ':00';
 }
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
 
-// 数字滚动：从旧值补间到新值；减弱动效偏好下直接显示
+// 数字滚动：beUI 思路，600ms easeOut 补间；减弱动效偏好下直接显示
 function rollNumber(el, to, format) {
   const from = typeof el._v === 'number' ? el._v : 0;
   el._v = to;
@@ -36,7 +46,7 @@ function rollNumber(el, to, format) {
   requestAnimationFrame(tick);
 }
 
-// 环比 pill：ratio 为小数；invert=true 时下降视为好（如跳出率）
+// 环比 pill；invert=true 时下降视为好（如跳出率）
 function setDelta(id, ratio, invert) {
   const el = $(id);
   if (ratio === null || ratio === undefined || !isFinite(ratio)) {
@@ -55,6 +65,16 @@ function setDeltaPp(id, pp) {
   const good = pp <= 0;
   el.className = 'delta ' + (good ? 'up' : 'down');
   el.textContent = (pp >= 0 ? '▲' : '▼') + Math.abs(pp * 100).toFixed(1) + 'pp';
+}
+// 差值 pill（如平均访问页数变化，单位：页）
+function setDeltaDiff(id, diff, suffix) {
+  const el = $(id);
+  if (diff === null || diff === undefined || !isFinite(diff)) {
+    el.className = 'delta flat'; el.textContent = '—'; return;
+  }
+  const good = diff >= 0;
+  el.className = 'delta ' + (good ? 'up' : 'down');
+  el.textContent = (diff >= 0 ? '▲' : '▼') + Math.abs(diff).toFixed(1) + suffix;
 }
 
 // ---------- 接口 ----------
@@ -80,6 +100,102 @@ function displayName(type, raw) {
   return raw;
 }
 
+// ---------- 通用渲染 ----------
+// 空状态只写"暂无数据"四个字
+const EMPTY = '<div class="empty">暂无数据</div>';
+
+// 明细表：对象 / 浏览量(条形+数字) / 访客数 —— BoardUI 表格规范
+function breakdownTable(items, nameCol) {
+  if (!items.length) return EMPTY;
+  const max = Math.max(...items.map((i) => i.pageviews), 1);
+  const rows = items.map((i) => `
+    <tr>
+      <td class="name" title="${escapeHtml(i.name)}">${escapeHtml(i.name)}</td>
+      <td class="num" style="width:42%">
+        <div class="bar-cell">
+          <div class="bar-track"><div class="bar-fill" style="width:${(i.pageviews / max * 100).toFixed(1)}%"></div></div>
+          <span>${fmtInt(i.pageviews)}</span>
+        </div>
+      </td>
+      <td class="num">${fmtInt(i.visitors)}</td>
+    </tr>`).join('');
+  return `
+    <table>
+      <thead><tr><th>${nameCol}</th><th class="num">浏览量</th><th class="num">访客数</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>`;
+}
+
+// 迷你列表：名 / 数（实时明细、Top5 紧凑行）
+function miniList(items, type) {
+  if (!items.length) return EMPTY;
+  return '<div class="mini-list">' + items.map((i) => `
+    <div class="mini-row">
+      <span class="mini-name" title="${escapeHtml(i.name)}">${escapeHtml(displayName(type, i.name))}</span>
+      <span class="mini-num">${fmtInt(i.count ?? i.pageviews ?? 0)}</span>
+    </div>`).join('') + '</div>';
+}
+
+function showError(el, msg) {
+  el.innerHTML = '<div class="card-error">' + escapeHtml(msg) + '</div>';
+}
+
+// ---------- 图表 ----------
+const charts = {};
+function getChart(id) {
+  if (!charts[id]) charts[id] = echarts.init($(id));
+  return charts[id];
+}
+function resizeCharts() {
+  Object.values(charts).forEach((c) => { try { c.resize(); } catch { /* 忽略 */ } });
+}
+
+const METRIC_NAMES = { visitors: '访客数', pageviews: '浏览量', visits: '访问次数' };
+const AXIS_STYLE = {
+  axisLine: { lineStyle: { color: '#ebebeb' } },
+  axisTick: { show: false },
+  axisLabel: { color: '#a1a1a1', fontSize: 11 },
+};
+const TOOLTIP = {
+  trigger: 'axis',
+  backgroundColor: '#fff',
+  borderColor: '#ebebeb',
+  textStyle: { color: '#0a0a0a', fontSize: 12 },
+};
+
+// 趋势图：GA4 式 —— 指标选择器切换单条实线，上期对比为灰色虚线叠加
+function trendOption(points, prevPoints, metric, unit, showPrev) {
+  const labels = points.map((p) => {
+    const dt = new Date(p.t);
+    return unit === 'day'
+      ? (dt.getMonth() + 1) + '-' + dt.getDate()
+      : String(dt.getHours()).padStart(2, '0') + ':00';
+  });
+  const series = [{
+    name: METRIC_NAMES[metric], type: 'line',
+    data: points.map((p) => p[metric] || 0),
+    smooth: true, symbol: 'none',
+    lineStyle: { color: '#0a0a0a', width: 2 },
+    areaStyle: { color: 'rgba(10,10,10,0.05)' },
+  }];
+  if (showPrev && prevPoints && prevPoints.length) {
+    // 按索引对齐上期（桶数量一致时即为同期对比）
+    const prevData = points.map((_, i) => (prevPoints[i] ? prevPoints[i][metric] || 0 : null));
+    series.push({
+      name: '上期', type: 'line', data: prevData,
+      smooth: true, symbol: 'none',
+      lineStyle: { color: '#a1a1a1', width: 1.5, type: 'dashed' },
+    });
+  }
+  return {
+    grid: { left: 8, right: 12, top: 12, bottom: 0, containLabel: true },
+    tooltip: TOOLTIP,
+    xAxis: { type: 'category', data: labels, boundaryGap: false, ...AXIS_STYLE },
+    yAxis: { type: 'value', splitLine: { lineStyle: { color: '#f2f2f2' } }, axisLabel: AXIS_STYLE.axisLabel },
+    series,
+  };
+}
+
 // ---------- 分段控件 ----------
 function buildSeg(el, items, getKey, getLabel, current, onPick) {
   el.innerHTML = '';
@@ -91,122 +207,225 @@ function buildSeg(el, items, getKey, getLabel, current, onPick) {
     el.appendChild(b);
   }
 }
+function wireTabs(el, attr, current, onPick) {
+  el.querySelectorAll('button').forEach((b) => {
+    b.classList.toggle('active', b.dataset[attr] === current);
+    b.onclick = () => {
+      el.querySelectorAll('button').forEach((x) => x.classList.remove('active'));
+      b.classList.add('active');
+      onPick(b.dataset[attr]);
+    };
+  });
+}
 
-// ---------- 各区块渲染 ----------
+// ---------- KPI 卡（6 张，Plausible 式一行）----------
+const KPI_DEFS = [
+  { id: 'visitors', label: '访客数', fmt: fmtInt },
+  { id: 'pageviews', label: '浏览量', fmt: fmtInt },
+  { id: 'visits', label: '访问次数', fmt: fmtInt },
+  { id: 'bounce', label: '跳出率', fmt: fmtPct, invert: true, hint: '按访问次数计算' },
+  { id: 'duration', label: '平均停留', fmt: fmtDuration, hint: '总停留 ÷ 访问次数' },
+  { id: 'avgPages', label: '平均访问页数', fmt: (v) => v.toFixed(1), hint: '浏览量 ÷ 访问次数' },
+];
+function buildKpis() {
+  $('kpis').innerHTML = KPI_DEFS.map((k) => `
+    <div class="kpi">
+      <div class="kpi-label">${k.label}</div>
+      <div class="kpi-row"><span class="kpi-value" id="kpi-${k.id}">—</span><span class="delta flat" id="d-${k.id}">—</span></div>
+      <div class="kpi-hint" id="h-${k.id}"></div>
+    </div>`).join('');
+}
+
+// ---------- 各视图加载 ----------
+// 总览
 async function loadOverview() {
   const d = await api('api/overview?' + q({ site: state.site, range: state.range }));
+  const avgPages = d.visits > 0 ? d.pageviews / d.visits : 0;
+  const prevAvgPages = d.prev.visits > 0 ? d.prev.pageviews / d.prev.visits : 0;
+
   rollNumber($('kpi-visitors'), d.visitors, fmtInt);
   rollNumber($('kpi-pageviews'), d.pageviews, fmtInt);
   rollNumber($('kpi-visits'), d.visits, fmtInt);
   rollNumber($('kpi-bounce'), d.bounceRate, fmtPct);
   rollNumber($('kpi-duration'), d.avgDuration, fmtDuration);
+  rollNumber($('kpi-avgPages'), avgPages, (v) => v.toFixed(1));
   setDelta('d-visitors', d.delta.visitors);
   setDelta('d-pageviews', d.delta.pageviews);
   setDelta('d-visits', d.delta.visits);
   setDeltaPp('d-bounce', d.delta.bounceRate);
+  $('d-duration').className = 'delta flat'; $('d-duration').textContent = '—';
+  setDeltaDiff('d-avgPages', d.prev.visits > 0 ? avgPages - prevAvgPages : null, '页');
   $('h-visitors').textContent = '上一周期：' + fmtInt(d.prev.visitors);
   $('h-pageviews').textContent = '上一周期：' + fmtInt(d.prev.pageviews);
   $('h-visits').textContent = '上一周期：' + fmtInt(d.prev.visits);
   $('h-bounce').textContent = '按访问次数计算';
   $('h-duration').textContent = '总停留 ÷ 访问次数';
+  $('h-avgPages').textContent = '浏览量 ÷ 访问次数';
   $('updated-at').textContent = fmtTime(d.updatedAt);
+
+  // 趋势（指标切换＋上期对比）
+  const t = await api('api/trend?' + q({
+    site: state.site, range: state.range,
+    ...(state.ovCompare ? { compare: 'prev' } : {}),
+  }));
+  getChart('ov-trend').setOption(
+    trendOption(t.points, t.prevPoints, state.ovMetric, t.unit, state.ovCompare), true);
+
+  // 来源 Top5 / 热门页面 Top5（并行）
+  const [ch, pg] = await Promise.all([
+    api('api/channel?' + q({ site: state.site, range: state.range })).catch(() => null),
+    api('api/pages?' + q({ site: state.site, range: state.range })).catch(() => null),
+  ]);
+  $('ov-sources').innerHTML = ch
+    ? breakdownTable(ch.domains.slice(0, 5).map((x) => ({ ...x })), '来源')
+    : EMPTY;
+  $('ov-pages').innerHTML = pg ? breakdownTable(pg.items.slice(0, 5), '页面') : EMPTY;
+
+  loadRealtimeStrip().catch((e) => console.error(e));
 }
 
-let chart = null;
-async function loadTrend() {
-  const d = await api('api/trend?' + q({ site: state.site, range: state.range }));
-  const labels = d.points.map((p) => {
-    const dt = new Date(p.t);
-    return d.unit === 'day'
-      ? (dt.getMonth() + 1) + '-' + dt.getDate()
-      : String(dt.getHours()).padStart(2, '0') + ':00';
-  });
-  if (!chart) chart = echarts.init($('trend-chart'));
-  chart.setOption({
+async function loadRealtimeStrip() {
+  const d = await api('api/realtime?' + q({ site: state.site }));
+  rollNumber($('rt-strip'), d.visitors, fmtInt);
+}
+
+// 流量分析
+async function loadTraffic() {
+  const t = await api('api/trend?' + q({
+    site: state.site, range: state.range,
+    ...(state.tfCompare ? { compare: 'prev' } : {}),
+  }));
+  getChart('tf-chart').setOption(
+    trendOption(t.points, t.prevPoints, state.tfMetric, t.unit, state.tfCompare), true);
+
+  const h = await api('api/hourly?' + q({ site: state.site, range: state.range }));
+  if (!h.hours.length) {
+    // 24 小时分布仅支持今日 / 昨日：保留图表实例，只显示空状态文字
+    getChart('hourly-chart').setOption({
+      graphic: [{
+        type: 'text', left: 'center', top: 'middle',
+        style: { text: '暂无数据', fill: '#a1a1a1', fontSize: 13 },
+      }],
+      xAxis: { show: false }, yAxis: { show: false }, series: [],
+    }, true);
+    return;
+  }
+  getChart('hourly-chart').setOption({
     grid: { left: 8, right: 12, top: 12, bottom: 0, containLabel: true },
-    tooltip: {
-      trigger: 'axis',
-      backgroundColor: '#fff',
-      borderColor: '#ebebeb',
-      textStyle: { color: '#0a0a0a', fontSize: 12 },
-    },
+    tooltip: { ...TOOLTIP, formatter: (ps) => `${ps[0].name}：浏览量 ${ps[0].value}` },
     xAxis: {
-      type: 'category', data: labels, boundaryGap: false,
-      axisLine: { lineStyle: { color: '#ebebeb' } },
-      axisTick: { show: false },
-      axisLabel: { color: '#a1a1a1', fontSize: 11 },
+      type: 'category',
+      data: h.hours.map((x) => String(x.hour).padStart(2, '0')),
+      ...AXIS_STYLE,
     },
-    yAxis: {
-      type: 'value',
-      splitLine: { lineStyle: { color: '#f2f2f2' } },
-      axisLabel: { color: '#a1a1a1', fontSize: 11 },
-    },
-    series: [
-      {
-        name: '浏览量', type: 'line', data: d.points.map((p) => p.pageviews),
-        smooth: true, symbol: 'none',
-        lineStyle: { color: '#0a0a0a', width: 2 },
-        areaStyle: { color: 'rgba(10,10,10,0.05)' },
-      },
-      {
-        name: '访问次数', type: 'line', data: d.points.map((p) => p.visits),
-        smooth: true, symbol: 'none',
-        lineStyle: { color: '#a1a1a1', width: 1.5, type: 'dashed' },
-      },
-    ],
+    yAxis: { type: 'value', splitLine: { lineStyle: { color: '#f2f2f2' } }, axisLabel: AXIS_STYLE.axisLabel },
+    series: [{
+      type: 'bar',
+      data: h.hours.map((x) => x.pageviews),
+      itemStyle: { color: '#262626', borderRadius: [3, 3, 0, 0] },
+      barWidth: '62%',
+    }],
   }, true);
 }
 
-async function loadBreakdown() {
-  const d = await api('api/breakdown?' + q({ site: state.site, range: state.range, type: state.btype }));
-  const body = $('breakdown-body');
-  if (!d.items.length) {
-    body.innerHTML = '<div class="empty">该维度暂无数据</div>';
-    return;
-  }
-  const max = Math.max(...d.items.map((i) => i.pageviews), 1);
-  const rows = d.items.map((i) => `
-    <tr>
-      <td class="name" title="${escapeHtml(i.name)}">${escapeHtml(displayName(d.type, i.name))}</td>
-      <td class="num" style="width:44%">
-        <div class="bar-cell">
-          <div class="bar-track"><div class="bar-fill" style="width:${(i.pageviews / max * 100).toFixed(1)}%"></div></div>
-          <span>${fmtInt(i.pageviews)}</span>
-        </div>
-      </td>
-      <td class="num">${fmtInt(i.visitors)}</td>
-    </tr>`).join('');
-  body.innerHTML = `
-    <table>
-      <thead><tr><th>对象</th><th class="num">浏览量</th><th class="num">访客数</th></tr></thead>
-      <tbody>${rows}</tbody>
-    </table>`;
+// 来源分析
+const DONUT_PALETTE = ['#0a0a0a', '#404040', '#8a8a8a', '#c9c9c9'];
+async function loadSource() {
+  const d = await api('api/channel?' + q({ site: state.site, range: state.range }));
+  getChart('channel-donut').setOption({
+    tooltip: { ...TOOLTIP, trigger: 'item', formatter: '{b}：{c}（{d}%）' },
+    legend: { bottom: 0, textStyle: { color: '#737373', fontSize: 12 } },
+    series: [{
+      type: 'pie', radius: ['55%', '76%'], center: ['50%', '42%'],
+      itemStyle: { borderColor: '#fff', borderWidth: 2 },
+      label: { color: '#737373', fontSize: 12, formatter: '{b}\n{d}%' },
+      labelLine: { lineStyle: { color: '#d4d4d4' } },
+      data: d.channels.map((c, i) => ({
+        name: c.channel, value: c.pageviews,
+        itemStyle: { color: DONUT_PALETTE[i % DONUT_PALETTE.length] },
+      })),
+    }],
+  }, true);
+
+  $('channel-table').innerHTML = breakdownTable(
+    d.channels.map((c) => ({ name: c.channel, pageviews: c.pageviews, visitors: c.visitors })), '渠道');
+  $('domain-table').innerHTML = breakdownTable(d.domains, '来源域名');
+  $('engine-table').innerHTML = d.engines.length
+    ? `<table><thead><tr><th>搜索引擎</th><th class="num">浏览量</th><th class="num">访客数</th></tr></thead>
+       <tbody>${d.engines.map((e) => `
+         <tr><td>${escapeHtml(e.name)}</td><td class="num">${fmtInt(e.pageviews)}</td><td class="num">${fmtInt(e.visitors)}</td></tr>`).join('')}
+       </tbody></table>`
+    : EMPTY;
 }
 
-function escapeHtml(s) {
-  return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+// 页面分析
+async function loadPages() {
+  const d = await api('api/pages?' + q({ site: state.site, range: state.range }));
+  $('pages-table').innerHTML = breakdownTable(d.items, '页面');
 }
 
+// 访客分析
+async function loadVisitors() {
+  const types = [
+    ['country', 'v-country'], ['browser', 'v-browser'], ['os', 'v-os'], ['device', 'v-device'],
+  ];
+  const results = await Promise.all(types.map(([t]) =>
+    api('api/breakdown?' + q({ site: state.site, range: state.range, type: t, limit: 12 })).catch(() => null)));
+  const names = { country: '国家 / 地区', browser: '浏览器', os: '操作系统', device: '设备' };
+  results.forEach((d, i) => {
+    const [t, elId] = types[i];
+    const el = $(elId);
+    if (!d || !d.items.length) { el.innerHTML = EMPTY; return; }
+    el.innerHTML = `<table><thead><tr><th>${names[t]}</th><th class="num">浏览量</th><th class="num">访客数</th></tr></thead>
+      <tbody>${d.items.map((x) => `
+        <tr><td class="name" title="${escapeHtml(x.name)}">${escapeHtml(displayName(t, x.name))}</td>
+        <td class="num">${fmtInt(x.pageviews)}</td><td class="num">${fmtInt(x.visitors)}</td></tr>`).join('')}
+      </tbody></table>`;
+  });
+}
+
+// 实时访客
 async function loadRealtime() {
   const d = await api('api/realtime?' + q({ site: state.site }));
-  rollNumber($('realtime-value'), d.visitors, fmtInt);
+  rollNumber($('rt-big'), d.visitors, fmtInt);
+  const det = await api('api/realtime-detail?' + q({ site: state.site })).catch(() => null);
+  $('rt-urls').innerHTML = det && det.urls.length ? miniList(det.urls) : EMPTY;
+  $('rt-refs').innerHTML = det && det.referrers.length
+    ? miniList(det.referrers.map((r) => ({ ...r, name: r.name || '直接访问' })), 'referrer') : EMPTY;
+  $('rt-countries').innerHTML = det && det.countries.length ? miniList(det.countries, 'country') : EMPTY;
 }
 
-async function loadAll() {
-  const jobs = [loadOverview(), loadTrend(), loadBreakdown()];
-  const rs = await Promise.allSettled(jobs);
-  rs.forEach((r, i) => {
-    if (r.status === 'rejected') {
-      const ids = ['kpis', 'trend-chart', 'breakdown-body'];
-      const el = $(ids[i]);
-      if (el && !el.querySelector('.card-error')) {
-        const div = document.createElement('div');
-        div.className = 'card-error';
-        div.textContent = '数据加载失败：' + r.reason.message;
-        el.appendChild(div);
-      }
+// ---------- 视图调度 ----------
+const LOADERS = {
+  overview: loadOverview,
+  traffic: loadTraffic,
+  source: loadSource,
+  pages: loadPages,
+  visitors: loadVisitors,
+  realtime: loadRealtime,
+};
+
+async function showView(view) {
+  state.view = view;
+  document.querySelectorAll('#nav button').forEach((b) =>
+    b.classList.toggle('active', b.dataset.view === view));
+  document.querySelectorAll('.view').forEach((s) =>
+    s.classList.toggle('hidden', s.id !== 'view-' + view));
+  resizeCharts();
+  try {
+    await LOADERS[view]();
+  } catch (e) {
+    const el = $('view-' + view);
+    if (el && !el.querySelector('.card-error')) {
+      el.insertAdjacentHTML('afterbegin',
+        '<div class="card"><div class="card-error">数据加载失败：' + escapeHtml(e.message) + '</div></div>');
     }
-  });
+  }
+  resizeCharts();
+}
+
+function refreshCurrent() {
+  showView(state.view).catch((e) => console.error(e));
 }
 
 // ---------- 初始化 ----------
@@ -217,7 +436,7 @@ async function init() {
 
   const renderSiteSeg = () => buildSeg($('site-seg'), sites,
     (s) => s.name, (s) => s.name, state.site,
-    (v) => { state.site = v; renderSiteSeg(); loadAll(); loadRealtime().catch((e) => console.error(e)); });
+    (v) => { state.site = v; renderSiteSeg(); refreshCurrent(); });
   renderSiteSeg();
 
   $('range-seg').querySelectorAll('button').forEach((b) => {
@@ -225,26 +444,40 @@ async function init() {
       $('range-seg').querySelectorAll('button').forEach((x) => x.classList.remove('active'));
       b.classList.add('active');
       state.range = b.dataset.range;
-      loadAll();
+      refreshCurrent();
     };
   });
 
-  $('breakdown-tabs').querySelectorAll('button').forEach((b) => {
-    b.onclick = () => {
-      $('breakdown-tabs').querySelectorAll('button').forEach((x) => x.classList.remove('active'));
-      b.classList.add('active');
-      state.btype = b.dataset.type;
-      loadBreakdown().catch((e) => console.error(e));
-    };
+  $('nav').querySelectorAll('button').forEach((b) => {
+    b.onclick = () => showView(b.dataset.view);
   });
 
-  await loadAll();
-  await loadRealtime().catch((e) => console.error(e));
-  setInterval(() => loadRealtime().catch((e) => console.error(e)), 30000);
-  addEventListener('resize', () => chart && chart.resize());
+  wireTabs($('ov-metric-tabs'), 'm', state.ovMetric, (v) => { state.ovMetric = v; loadOverview().catch((e) => console.error(e)); });
+  wireTabs($('tf-metric-tabs'), 'm', state.tfMetric, (v) => { state.tfMetric = v; loadTraffic().catch((e) => console.error(e)); });
+  const wireToggle = (id, key, reload) => {
+    const el = $(id);
+    el.onclick = () => {
+      el.classList.toggle('active');
+      state[key] = el.classList.contains('active');
+      reload().catch((e) => console.error(e));
+    };
+  };
+  wireToggle('ov-compare', 'ovCompare', loadOverview);
+  wireToggle('tf-compare', 'tfCompare', loadTraffic);
+
+  buildKpis();
+  await showView('overview');
+
+  // 实时轮询：总览只刷在线条，实时页全刷；其余视图不轮询
+  setInterval(() => {
+    if (state.view === 'overview') loadRealtimeStrip().catch((e) => console.error(e));
+    else if (state.view === 'realtime') loadRealtime().catch((e) => console.error(e));
+  }, 30000);
+
+  addEventListener('resize', resizeCharts);
 }
 
 init().catch((e) => {
-  document.querySelector('.page').insertAdjacentHTML('afterbegin',
+  document.querySelector('.app').insertAdjacentHTML('afterbegin',
     '<div class="card"><div class="card-error">初始化失败：' + escapeHtml(e.message) + '</div></div>');
 });

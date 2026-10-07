@@ -150,6 +150,103 @@ td.name { max-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: 
 .footer { text-align: center; color: var(--text-3); font-size: 12px; margin-top: 8px; }
 .card-error { color: var(--down); font-size: 13px; padding: 16px 0; }
 
+/* ============================================================
+   v2 新增：侧边栏布局＋多模块组件
+   视觉仍用 BoardUI token（颜色 / 圆角 / 字体 / 阴影不变）：
+   侧边栏走中性灰语言 —— 浅灰底、当前项白底 pill
+   ============================================================ */
+.app { display: flex; min-height: 100vh; }
+
+.sidebar {
+  width: 216px; flex-shrink: 0;
+  padding: 24px 12px;
+  position: sticky; top: 0; height: 100vh;
+  display: flex; flex-direction: column;
+  border-right: 1px solid var(--border);
+  background: var(--bg);
+}
+.brand { font-size: 16px; font-weight: 600; padding: 0 12px; margin-bottom: 20px; letter-spacing: 0.2px; }
+.nav { display: flex; flex-direction: column; gap: 2px; flex: 1; }
+.nav button {
+  border: 0; background: transparent; cursor: pointer; text-align: left;
+  font-family: var(--font-sans); font-size: 14px; color: var(--text-2);
+  padding: 10px 14px; border-radius: 10px;
+  transition: background 0.15s, color 0.15s, box-shadow 0.15s;
+}
+.nav button:hover { color: var(--text-1); background: #efefef; }
+.nav button.active {
+  background: var(--card); color: var(--text-1); font-weight: 600;
+  box-shadow: var(--shadow);
+}
+.side-foot { font-size: 12px; color: var(--text-3); padding: 12px; }
+
+.main { flex: 1; min-width: 0; padding: 28px 24px 40px; max-width: 1240px; }
+.view.hidden { display: none; }
+
+/* 卡片头：标题＋右侧工具（GA4 式指标选择器 / 对比开关） */
+.card-head {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 12px; flex-wrap: wrap; margin-bottom: 12px;
+}
+.card-head .card-title { margin-bottom: 0; }
+.chart-tools { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.toggle {
+  border: 1px solid var(--border); background: transparent; cursor: pointer;
+  font-family: var(--font-sans); font-size: 12px; color: var(--text-2);
+  padding: 6px 12px; border-radius: 999px;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+.toggle:hover { color: var(--text-1); }
+.toggle.active { background: var(--text-1); border-color: var(--text-1); color: #fff; }
+
+/* 网格：双列 / 三列（Mixpanel Boards 式留白节奏） */
+.grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px; }
+.grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-bottom: 16px; }
+.grid-2 > .card, .grid-3 > .card { margin-bottom: 0; }
+
+/* KPI 六卡（Plausible 式一行） */
+.kpis-6 { grid-template-columns: repeat(6, 1fr); }
+
+/* 图表容器 */
+.chart { width: 100%; height: 320px; }
+.chart-sm { height: 260px; }
+
+/* 迷你列表（实时明细 / 紧凑行） */
+.mini-list { display: flex; flex-direction: column; }
+.mini-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 9px 4px; border-bottom: 1px solid var(--border); font-size: 13px;
+}
+.mini-row:last-child { border-bottom: 0; }
+.mini-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-1); }
+.mini-num {
+  font-family: var(--font-mono); font-variant-numeric: tabular-nums;
+  color: var(--text-2); white-space: nowrap;
+}
+
+/* ---------- v2 响应式 ---------- */
+@media (max-width: 1100px) {
+  .kpis-6 { grid-template-columns: repeat(3, 1fr); }
+  .grid-3 { grid-template-columns: 1fr; }
+}
+@media (max-width: 900px) {
+  .grid-2 { grid-template-columns: 1fr; }
+  .sidebar { width: 184px; }
+}
+@media (max-width: 640px) {
+  .app { flex-direction: column; }
+  .sidebar {
+    width: 100%; height: auto; position: static;
+    border-right: 0; border-bottom: 1px solid var(--border);
+    padding: 16px 12px;
+  }
+  .nav { flex-direction: row; overflow-x: auto; }
+  .nav button { white-space: nowrap; }
+  .side-foot { display: none; }
+  .kpis-6 { grid-template-columns: repeat(2, 1fr); }
+  .main { padding: 20px 16px 32px; }
+}
+
 /* ---------- 响应式 ---------- */
 @media (max-width: 1024px) {
   .kpis { grid-template-columns: repeat(3, 1fr); }

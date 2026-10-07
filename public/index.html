@@ -10,83 +10,174 @@
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
-<div class="page">
+<div class="app">
 
-  <header class="topbar">
-    <div class="title">网站数据看板</div>
-    <div class="controls">
-      <div class="segmented" id="site-seg" role="tablist" aria-label="站点"></div>
-      <div class="segmented" id="range-seg" role="tablist" aria-label="时间范围">
-        <button data-range="today" class="active">今日</button>
-        <button data-range="yesterday">昨日</button>
-        <button data-range="7d">近 7 天</button>
-        <button data-range="30d">近 30 天</button>
+  <aside class="sidebar">
+    <div class="brand">网站数据看板</div>
+    <nav class="nav" id="nav">
+      <button data-view="overview" class="active">总览</button>
+      <button data-view="traffic">流量分析</button>
+      <button data-view="source">来源分析</button>
+      <button data-view="pages">页面分析</button>
+      <button data-view="visitors">访客分析</button>
+      <button data-view="realtime">实时访客</button>
+    </nav>
+    <div class="side-foot">数据更新于 <span id="updated-at">—</span></div>
+  </aside>
+
+  <main class="main">
+    <header class="topbar">
+      <div class="controls">
+        <div class="segmented" id="site-seg" role="tablist" aria-label="站点"></div>
+        <div class="segmented" id="range-seg" role="tablist" aria-label="时间范围">
+          <button data-range="today" class="active">今日</button>
+          <button data-range="yesterday">昨日</button>
+          <button data-range="7d">近 7 天</button>
+          <button data-range="30d">近 30 天</button>
+        </div>
       </div>
-    </div>
-  </header>
+    </header>
 
-  <section class="kpis" id="kpis">
-    <div class="kpi">
-      <div class="kpi-label">访客数</div>
-      <div class="kpi-row"><span class="kpi-value" id="kpi-visitors">—</span><span class="delta flat" id="d-visitors">—</span></div>
-      <div class="kpi-hint" id="h-visitors"></div>
-    </div>
-    <div class="kpi">
-      <div class="kpi-label">浏览量</div>
-      <div class="kpi-row"><span class="kpi-value" id="kpi-pageviews">—</span><span class="delta flat" id="d-pageviews">—</span></div>
-      <div class="kpi-hint" id="h-pageviews"></div>
-    </div>
-    <div class="kpi">
-      <div class="kpi-label">访问次数</div>
-      <div class="kpi-row"><span class="kpi-value" id="kpi-visits">—</span><span class="delta flat" id="d-visits">—</span></div>
-      <div class="kpi-hint" id="h-visits"></div>
-    </div>
-    <div class="kpi">
-      <div class="kpi-label">跳出率</div>
-      <div class="kpi-row"><span class="kpi-value" id="kpi-bounce">—</span><span class="delta flat" id="d-bounce">—</span></div>
-      <div class="kpi-hint" id="h-bounce"></div>
-    </div>
-    <div class="kpi">
-      <div class="kpi-label">平均停留</div>
-      <div class="kpi-row"><span class="kpi-value" id="kpi-duration">—</span></div>
-      <div class="kpi-hint" id="h-duration"></div>
-    </div>
-  </section>
-
-  <section class="card">
-    <div class="card-title">访问趋势</div>
-    <div class="chart-legend">
-      <span><span class="legend-dot" style="background:#0a0a0a"></span>浏览量</span>
-      <span><span class="legend-dot" style="background:#a1a1a1"></span>访问次数</span>
-    </div>
-    <div id="trend-chart"></div>
-  </section>
-
-  <section class="card">
-    <div class="card-title">明细</div>
-    <div class="tabs" id="breakdown-tabs">
-      <button data-type="url" class="active">热门页面</button>
-      <button data-type="referrer">来源</button>
-      <button data-type="browser">浏览器</button>
-      <button data-type="os">系统</button>
-      <button data-type="device">设备</button>
-      <button data-type="country">国家</button>
-    </div>
-    <div id="breakdown-body"></div>
-  </section>
-
-  <section class="card">
-    <div class="realtime">
-      <span class="live-dot"></span>
-      <div>
-        <span class="realtime-value" id="realtime-value">—</span>
-        <div class="realtime-label">当前在线访客</div>
+    <!-- 总览：Plausible 节奏 —— KPI 条 → 大趋势图（指标切换）→ 明细双表 → 实时条 -->
+    <section class="view" id="view-overview">
+      <div class="kpis kpis-6" id="kpis"></div>
+      <div class="card">
+        <div class="card-head">
+          <div class="card-title">访问趋势</div>
+          <div class="chart-tools">
+            <div class="tabs" id="ov-metric-tabs">
+              <button data-m="visitors" class="active">访客数</button>
+              <button data-m="pageviews">浏览量</button>
+              <button data-m="visits">访问次数</button>
+            </div>
+            <button class="toggle" id="ov-compare">对比上期</button>
+          </div>
+        </div>
+        <div class="chart" id="ov-trend"></div>
       </div>
-    </div>
-  </section>
+      <div class="grid-2">
+        <div class="card">
+          <div class="card-title">来源 Top5</div>
+          <div id="ov-sources"></div>
+        </div>
+        <div class="card">
+          <div class="card-title">热门页面 Top5</div>
+          <div id="ov-pages"></div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="realtime">
+          <span class="live-dot"></span>
+          <div>
+            <span class="realtime-value" id="rt-strip">—</span>
+            <div class="realtime-label">当前在线访客</div>
+          </div>
+        </div>
+      </div>
+    </section>
 
-  <div class="footer">数据更新于 <span id="updated-at">—</span></div>
+    <!-- 流量分析：GA4 式 —— 指标选择器＋上期虚线对比＋24 小时分布 -->
+    <section class="view hidden" id="view-traffic">
+      <div class="card">
+        <div class="card-head">
+          <div class="card-title">流量趋势</div>
+          <div class="chart-tools">
+            <div class="tabs" id="tf-metric-tabs">
+              <button data-m="visitors" class="active">访客数</button>
+              <button data-m="pageviews">浏览量</button>
+              <button data-m="visits">访问次数</button>
+            </div>
+            <button class="toggle" id="tf-compare">对比上期</button>
+          </div>
+        </div>
+        <div class="chart" id="tf-chart"></div>
+      </div>
+      <div class="card">
+        <div class="card-title">24 小时分布</div>
+        <div class="chart chart-sm" id="hourly-chart"></div>
+      </div>
+    </section>
 
+    <!-- 来源分析：百度渠道分组＋友盟式密报表 -->
+    <section class="view hidden" id="view-source">
+      <div class="grid-2">
+        <div class="card">
+          <div class="card-title">渠道构成</div>
+          <div class="chart chart-sm" id="channel-donut"></div>
+        </div>
+        <div class="card">
+          <div class="card-title">渠道明细</div>
+          <div id="channel-table"></div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-title">来源域名</div>
+        <div id="domain-table"></div>
+      </div>
+      <div class="card">
+        <div class="card-title">搜索引擎</div>
+        <div id="engine-table"></div>
+      </div>
+    </section>
+
+    <!-- 页面分析：百度受访页面列定义＋Mixpanel 克制条形 -->
+    <section class="view hidden" id="view-pages">
+      <div class="card">
+        <div class="card-title">受访页面</div>
+        <div id="pages-table"></div>
+      </div>
+    </section>
+
+    <!-- 访客分析：Mixpanel Boards 式四宫格 -->
+    <section class="view hidden" id="view-visitors">
+      <div class="grid-2">
+        <div class="card">
+          <div class="card-title">国家 / 地区</div>
+          <div id="v-country"></div>
+        </div>
+        <div class="card">
+          <div class="card-title">浏览器</div>
+          <div id="v-browser"></div>
+        </div>
+        <div class="card">
+          <div class="card-title">操作系统</div>
+          <div id="v-os"></div>
+        </div>
+        <div class="card">
+          <div class="card-title">设备类型</div>
+          <div id="v-device"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 实时访客：GA4 实时卡片＋友盟实时呈现 -->
+    <section class="view hidden" id="view-realtime">
+      <div class="card">
+        <div class="realtime">
+          <span class="live-dot"></span>
+          <div>
+            <span class="realtime-value" id="rt-big">—</span>
+            <div class="realtime-label">当前在线访客</div>
+          </div>
+        </div>
+      </div>
+      <div class="grid-3">
+        <div class="card">
+          <div class="card-title">实时页面</div>
+          <div id="rt-urls"></div>
+        </div>
+        <div class="card">
+          <div class="card-title">实时来源</div>
+          <div id="rt-refs"></div>
+        </div>
+        <div class="card">
+          <div class="card-title">实时国家</div>
+          <div id="rt-countries"></div>
+        </div>
+      </div>
+    </section>
+
+  </main>
 </div>
 <script src="vendor/echarts.min.js"></script>
 <script src="app.js"></script>

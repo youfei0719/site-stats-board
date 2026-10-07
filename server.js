@@ -178,8 +178,54 @@ app.get('/api/overview', async (req, res) => {
   }
 });
 
-// 趋势：按小时（今日/昨日）或按天（近7/30天）
-// 假设：/pageviews 返回 { pageviews:[{x,y}], sessions:[{x,y}] }，x 为毫秒时间戳
+// ---------- 趋势数据抓取（抽出复用）----------
+// 合并 pageviews + sessions 为统一时间点序列；x 为毫秒时间戳
+function mergePvSe(pvArr, seArr) {
+  const byTime = new Map();
+  const put = (arr, key) => {
+    for (const p of (Array.isArray(arr) ? arr : [])) {
+      const t = num(p.x);
+      if (!byTime.has(t)) byTime.set(t, { t, pageviews: 0, visits: 0 });
+      byTime.get(t)[key] = num(p.y);
+    }
+  };
+  put(pvArr, 'pageviews');
+  put(seArr, 'visits');
+  return [...byTime.values()].sort((a, b) => a.t - b.t);
+}
+
+async function getPageviews(websiteId, start, end, unit) {
+  const data = await umami(`/websites/${websiteId}/pageviews`, { startAt: start, endAt: end, unit });
+  // 兼容多种返回形状
+  const pvArr = Array.isArray(data?.pageviews) ? data.pageviews
+    : Array.isArray(data) ? data : [];
+  const seArr = Array.isArray(data?.sessions) ? data.sessions : [];
+  return mergePvSe(pvArr, seArr);
+}
+
+// 从 compare=prev 返回里防御性提取上期序列（Umami 各版本键名不一，多候选；提不出返回 null）
+function extractPrevSeries(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  let pv = null, se = null;
+  for (const k of ['pageviews_prev', 'pageviewsPrev', 'prev_pageviews']) {
+    if (Array.isArray(raw[k])) { pv = raw[k]; break; }
+  }
+  for (const k of ['sessions_prev', 'sessionsPrev', 'prev_sessions']) {
+    if (Array.isArray(raw[k])) { se = raw[k]; break; }
+  }
+  for (const k of ['prev', 'previous', 'comparison']) {
+    const o = raw[k];
+    if (o && typeof o === 'object') {
+      if (!pv && Array.isArray(o.pageviews)) pv = o.pageviews;
+      if (!se && Array.isArray(o.sessions)) se = o.sessions;
+    }
+  }
+  if (!pv && !se) return null;
+  const pts = mergePvSe(pv || [], se || []);
+  return pts.length ? pts : null;
+}
+
+// 趋势：按小时（今日/昨日）或按天（近7/30天）；?compare=prev 时附带上期序列（虚线对比用）
 app.get('/api/trend', async (req, res) => {
   try {
     const site = findSite(req.query.site);
@@ -187,34 +233,80 @@ app.get('/api/trend', async (req, res) => {
     const { start, end } = resolveRange(range);
     const unit = range === '7d' || range === '30d' ? 'day' : 'hour';
 
-    const data = await umami(`/websites/${site.id}/pageviews`, { startAt: start, endAt: end, unit });
+    const points = await getPageviews(site.id, start, end, unit);
 
-    // 兼容多种返回形状
-    const pvArr = Array.isArray(data?.pageviews) ? data.pageviews
-      : Array.isArray(data) ? data : [];
-    const seArr = Array.isArray(data?.sessions) ? data.sessions : [];
-
-    const byTime = new Map();
-    for (const p of pvArr) {
-      const t = num(p.x);
-      if (!byTime.has(t)) byTime.set(t, { t, pageviews: 0, visits: 0 });
-      byTime.get(t).pageviews = num(p.y);
+    let prevPoints = null;
+    if (req.query.compare === 'prev') {
+      const dur = end - start;
+      try {
+        // 先试 Umami 原生 compare=prev
+        const raw = await umami(`/websites/${site.id}/pageviews`,
+          { startAt: start, endAt: end, unit, compare: 'prev' });
+        prevPoints = extractPrevSeries(raw);
+      } catch { /* 键名对不上就走回退 */ }
+      if (!prevPoints) {
+        // 回退：单独拉上一周期再拼（/pageviews 已验证可用，必定成功）
+        try { prevPoints = await getPageviews(site.id, start - dur, end - dur, unit); }
+        catch { prevPoints = null; }
+      }
     }
-    for (const s of seArr) {
-      const t = num(s.x);
-      if (!byTime.has(t)) byTime.set(t, { t, pageviews: 0, visits: 0 });
-      byTime.get(t).visits = num(s.y);
-    }
 
-    const points = [...byTime.values()].sort((a, b) => a.t - b.t);
-    res.json({ site: site.name, unit, points, updatedAt: Date.now() });
+    res.json({ site: site.name, unit, points, prevPoints, updatedAt: Date.now() });
   } catch (e) {
     res.status(502).json({ error: e.message });
   }
 });
 
-// 明细：热门页面 / 来源 / 浏览器 / 系统 / 设备 / 国家（前 10）
-// 优先用 /metrics/expanded（每行带 pageviews + visitors），失败则回退到 /metrics
+// ---------- 渠道分组规则（百度统计式：直接访问 / 搜索引擎 / 社交媒体 / 外部链接）----------
+const SEARCH_ENGINES = [
+  { name: '百度', hosts: ['baidu.com'] },
+  { name: 'Google', hosts: ['google.'] },
+  { name: 'Bing', hosts: ['bing.com'] },
+  { name: '搜狗', hosts: ['sogou.com'] },
+  { name: '360搜索', hosts: ['so.com', '360.cn', '360.com'] },
+  { name: 'DuckDuckGo', hosts: ['duckduckgo.com'] },
+  { name: 'Yandex', hosts: ['yandex.'] },
+];
+const SOCIAL_HOSTS = ['weibo.', 'weixin.', 'qq.com', 'xiaohongshu.', 'douyin.', 'zhihu.',
+  'douban.', 'bilibili.', 'tieba.', 'twitter.', 'x.com', 'facebook.', 'instagram.',
+  'threads.', 'youtube.', 't.me', 'telegram.', 'linkedin.'];
+const CHANNEL_ORDER = ['直接访问', '搜索引擎', '社交媒体', '外部链接'];
+
+function hostnameOf(ref) {
+  const s = String(ref || '').trim().toLowerCase();
+  if (!s) return '';
+  try {
+    const u = new URL(s.includes('://') ? s : 'https://' + s);
+    return u.hostname.replace(/^www\./, '');
+  } catch {
+    return s.split('/')[0].replace(/^www\./, '');
+  }
+}
+function engineOf(host) {
+  for (const e of SEARCH_ENGINES) {
+    if (e.hosts.some((h) => host.includes(h))) return e.name;
+  }
+  return '';
+}
+function channelOf(host) {
+  if (!host) return '直接访问';
+  if (engineOf(host)) return '搜索引擎';
+  if (SOCIAL_HOSTS.some((h) => host.includes(h))) return '社交媒体';
+  return '外部链接';
+}
+
+// 抓取 metrics 明细（expanded 优先，失败回退普通；统一做数组归一化）
+async function fetchMetrics(websiteId, type, start, end) {
+  let rows;
+  try {
+    rows = await umami(`/websites/${websiteId}/metrics/expanded`, { startAt: start, endAt: end, type });
+  } catch {
+    rows = await umami(`/websites/${websiteId}/metrics`, { startAt: start, endAt: end, type });
+  }
+  return Array.isArray(rows) ? rows : (Array.isArray(rows?.data) ? rows.data : []);
+}
+
+// 明细：热门页面 / 来源 / 浏览器 / 系统 / 设备 / 国家（?limit= 取前 N，默认 10，上限 50）
 const BREAKDOWN_TYPES = { url: 'path', referrer: 'referrer', browser: 'browser', os: 'os', device: 'device', country: 'country' };
 
 app.get('/api/breakdown', async (req, res) => {
@@ -222,16 +314,10 @@ app.get('/api/breakdown', async (req, res) => {
     const site = findSite(req.query.site);
     const type = BREAKDOWN_TYPES[req.query.type] || 'path';
     const { start, end } = resolveRange(req.query.range);
+    const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 10, 1), 50);
 
-    let rows;
-    try {
-      rows = await umami(`/websites/${site.id}/metrics/expanded`, { startAt: start, endAt: end, type });
-    } catch {
-      rows = await umami(`/websites/${site.id}/metrics`, { startAt: start, endAt: end, type });
-    }
-    const arr = Array.isArray(rows) ? rows : Array.isArray(rows?.data) ? rows.data : [];
-
-    const items = arr.slice(0, 10).map((r) => ({
+    const rows = await fetchMetrics(site.id, type, start, end);
+    const items = rows.slice(0, limit).map((r) => ({
       name: String(r.x ?? ''),
       pageviews: num(r.pageviews ?? r.y), // expanded 有 pageviews 字段；普通 metrics 只有 y
       visitors: num(r.visitors),
@@ -254,6 +340,116 @@ app.get('/api/realtime', async (req, res) => {
     res.json({ site: site.name, visitors, updatedAt: Date.now() });
   } catch (e) {
     res.status(502).json({ error: e.message });
+  }
+});
+
+// ---------- v2 新增：来源分析 ----------
+// 渠道构成（环形图）+ 来源域名 Top15 + 搜索引擎 Top10，一次取齐
+app.get('/api/channel', async (req, res) => {
+  try {
+    const site = findSite(req.query.site);
+    const { start, end } = resolveRange(req.query.range);
+    const rows = await fetchMetrics(site.id, 'referrer', start, end);
+
+    const chMap = new Map(CHANNEL_ORDER.map((c) => [c, { channel: c, visitors: 0, pageviews: 0 }]));
+    const domMap = new Map();
+    const engMap = new Map();
+    for (const r of rows) {
+      const host = hostnameOf(r.x);
+      const ch = channelOf(host);
+      const pv = num(r.pageviews ?? r.y);
+      const vs = num(r.visitors);
+      const c = chMap.get(ch);
+      c.visitors += vs; c.pageviews += pv;
+      const dk = host || '直接访问';
+      if (!domMap.has(dk)) domMap.set(dk, { name: host || '直接访问', visitors: 0, pageviews: 0 });
+      const d = domMap.get(dk);
+      d.visitors += vs; d.pageviews += pv;
+      const eng = engineOf(host);
+      if (eng) {
+        if (!engMap.has(eng)) engMap.set(eng, { name: eng, visitors: 0, pageviews: 0 });
+        const e = engMap.get(eng);
+        e.visitors += vs; e.pageviews += pv;
+      }
+    }
+    const byPv = (a, b) => b.pageviews - a.pageviews;
+    res.json({
+      site: site.name,
+      channels: [...chMap.values()],
+      domains: [...domMap.values()].sort(byPv).slice(0, 15),
+      engines: [...engMap.values()].sort(byPv).slice(0, 10),
+      updatedAt: Date.now(),
+    });
+  } catch (e) {
+    res.status(502).json({ error: e.message });
+  }
+});
+
+// ---------- v2 新增：24 小时分布（仅今日 / 昨日，按上海墙钟小时聚合）----------
+app.get('/api/hourly', async (req, res) => {
+  try {
+    const site = findSite(req.query.site);
+    const range = req.query.range || 'today';
+    if (range !== 'today' && range !== 'yesterday') {
+      return res.json({ site: site.name, hours: [], updatedAt: Date.now() });
+    }
+    const { start, end } = resolveRange(range);
+    const pts = await getPageviews(site.id, start, end, 'hour');
+    const hours = Array.from({ length: 24 }, (_, hour) => ({ hour, pageviews: 0, visits: 0 }));
+    for (const p of pts) {
+      const h = new Date(p.t + 8 * 3600e3).getUTCHours(); // 上海墙钟小时
+      if (h >= 0 && h < 24) {
+        hours[h].pageviews += p.pageviews;
+        hours[h].visits += p.visits;
+      }
+    }
+    res.json({ site: site.name, hours, updatedAt: Date.now() });
+  } catch (e) {
+    res.status(502).json({ error: e.message });
+  }
+});
+
+// ---------- v2 新增：受访页面 Top20 ----------
+app.get('/api/pages', async (req, res) => {
+  try {
+    const site = findSite(req.query.site);
+    const { start, end } = resolveRange(req.query.range);
+    const rows = await fetchMetrics(site.id, 'path', start, end);
+    const items = rows.slice(0, 20).map((r) => ({
+      name: String(r.x ?? ''),
+      pageviews: num(r.pageviews ?? r.y),
+      visitors: num(r.visitors),
+    }));
+    res.json({ site: site.name, items, updatedAt: Date.now() });
+  } catch (e) {
+    res.status(502).json({ error: e.message });
+  }
+});
+
+// ---------- v2 新增：实时明细（最近 30 分钟的页面 / 来源 / 国家）----------
+// GET /api/realtime/{websiteId} 形状不确定，尽力解析；404 或失败一律返回空数组，前端显示"暂无数据"
+app.get('/api/realtime-detail', async (req, res) => {
+  const site = findSite(req.query.site);
+  const empty = { site: site.name, urls: [], referrers: [], countries: [], updatedAt: Date.now() };
+  try {
+    const data = await umami(`/realtime/${site.id}`);
+    const norm = (arr) => (Array.isArray(arr) ? arr : []).slice(0, 10).map((r) => ({
+      name: String(r.x ?? r.name ?? r.url ?? ''),
+      count: num(r.y ?? r.count ?? r.visitors ?? r.pageviews),
+    })).filter((r) => r.name);
+    const pick = (...keys) => {
+      for (const k of keys) if (Array.isArray(data?.[k])) return data[k];
+      return [];
+    };
+    res.json({
+      site: site.name,
+      urls: norm(pick('urls', 'pages', 'topPages')),
+      referrers: norm(pick('referrers', 'sources', 'topReferrers')),
+      countries: norm(pick('countries', 'topCountries')),
+      updatedAt: Date.now(),
+    });
+  } catch {
+    res.json(empty);
   }
 });
 
