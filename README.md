@@ -86,9 +86,13 @@ location /board/ {
 |---|---|
 | `GET /api/sites` | 站点清单 `[{id, name}]` |
 | `GET /api/overview?site=&range=today\|yesterday\|7d\|30d` | KPI + 环比（含上一周期数值 `prev`） |
-| `GET /api/trend?site=&range=` | 趋势点 `[{t, pageviews, visits}]`（今日/昨日按小时，近7/30天按天） |
-| `GET /api/breakdown?site=&type=url\|referrer\|browser\|os\|device\|country&range=` | 明细前 10 `[{name, pageviews, visitors}]` |
+| `GET /api/trend?site=&range=` | 趋势点 `[{t, pageviews, visits}]`（今日/昨日按小时，近7/30天按天）；`&compare=prev` 附带上期序列 `prevPoints`（先试 Umami 原生 compare=prev，失败回退为单独拉上一周期） |
+| `GET /api/breakdown?site=&type=url\|referrer\|browser\|os\|device\|country&range=` | 明细 `[{name, pageviews, visitors}]`（`&limit=N` 取前 N，默认 10，上限 50） |
 | `GET /api/realtime?site=` | 近 5 分钟在线访客数 |
+| `GET /api/channel?site=&range=` | 来源分析：`{channels:[{channel,visitors,pageviews}]}`（直接访问/搜索引擎/社交媒体/外部链接）＋ `domains`（来源域名 Top15）＋ `engines`（搜索引擎 Top10） |
+| `GET /api/hourly?site=&range=today\|yesterday` | 24 小时分布 `[{hour, pageviews, visits}]`（上海墙钟小时；其他 range 返回空数组） |
+| `GET /api/pages?site=&range=` | 受访页面 Top20 `[{name, pageviews, visitors}]` |
+| `GET /api/realtime-detail?site=` | 实时明细 `{urls, referrers, countries}`（各 Top10；上游 404/失败时返回空数组，前端显示"暂无数据"） |
 
 时间范围按 **Asia/Shanghai** 换算成毫秒时间戳；环比取等长上一周期对比。
 上游（Umami）失败时接口返回 `502 + {error}`，前端如实展示"数据加载失败"，不编造。
