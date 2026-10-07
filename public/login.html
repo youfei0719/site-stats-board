@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>登录 · 网站数据看板</title>
+<style>
+  :root {
+    --bg: #f7f7f7;
+    --card: #ffffff;
+    --radius: 16px;
+    --shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05), 0 8px 24px -12px rgba(0, 0, 0, 0.12);
+    --text-1: #0a0a0a;
+    --text-2: #737373;
+    --text-3: #a1a1a1;
+    --border: #ebebeb;
+    --down: #e40014;
+    --font-sans: "Inter", system-ui, -apple-system, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans SC", sans-serif;
+    --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text-1);
+    font-family: var(--font-sans);
+    font-size: 14px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+  }
+  .login-card {
+    background: var(--card);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    padding: 36px 32px 32px;
+    width: 100%;
+    max-width: 380px;
+  }
+  .mark {
+    width: 44px;
+    height: 44px;
+    border-radius: 12px;
+    background: var(--text-1);
+    color: #fff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: var(--font-mono);
+    font-size: 20px;
+    font-weight: 600;
+    margin-bottom: 20px;
+  }
+  h1 { font-size: 20px; font-weight: 600; letter-spacing: 0.2px; margin-bottom: 6px; }
+  .sub { font-size: 13px; color: var(--text-2); margin-bottom: 24px; }
+  label { display: block; font-size: 13px; color: var(--text-2); margin-bottom: 8px; }
+  .field { position: relative; margin-bottom: 16px; }
+  input[type="password"], input[type="text"] {
+    width: 100%;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 12px 14px;
+    font-family: var(--font-sans);
+    font-size: 14px;
+    color: var(--text-1);
+    background: #fff;
+    outline: none;
+    transition: border-color 0.15s, box-shadow 0.15s;
+  }
+  input[type="password"]:focus, input[type="text"]:focus {
+    border-color: var(--text-1);
+    box-shadow: 0 0 0 3px rgba(10, 10, 10, 0.06);
+  }
+  .toggle {
+    position: absolute;
+    right: 12px;
+    top: 50%;
+    transform: translateY(-50%);
+    border: 0;
+    background: transparent;
+    color: var(--text-3);
+    font-size: 13px;
+    cursor: pointer;
+    font-family: var(--font-sans);
+    padding: 4px;
+  }
+  .toggle:hover { color: var(--text-1); }
+  .error {
+    display: none;
+    font-size: 13px;
+    color: var(--down);
+    margin-bottom: 16px;
+  }
+  .error.show { display: block; }
+  button.submit {
+    width: 100%;
+    border: 0;
+    border-radius: 10px;
+    background: var(--text-1);
+    color: #fff;
+    font-family: var(--font-sans);
+    font-size: 14px;
+    font-weight: 500;
+    padding: 12px;
+    cursor: pointer;
+    transition: background 0.15s, transform 0.1s;
+  }
+  button.submit:hover { background: #262626; }
+  button.submit:active { transform: scale(0.99); }
+  button.submit:disabled { background: var(--text-3); cursor: default; transform: none; }
+  .foot {
+    margin-top: 20px;
+    text-align: center;
+    font-size: 12px;
+    color: var(--text-3);
+  }
+</style>
+</head>
+<body>
+  <div class="login-card">
+    <div class="mark">数</div>
+    <h1>网站数据看板</h1>
+    <div class="sub">请输入密码继续</div>
+    <form id="login-form" autocomplete="off">
+      <label for="password">密码</label>
+      <div class="field">
+        <input type="password" id="password" name="password" placeholder="输入看板密码" autofocus>
+        <button type="button" class="toggle" id="toggle">显示</button>
+      </div>
+      <div class="error" id="error">密码不正确，请重试</div>
+      <button type="submit" class="submit" id="submit">进入看板</button>
+    </form>
+    <div class="foot">wuyu.uk · stats</div>
+  </div>
+<script>
+  const form = document.getElementById('login-form');
+  const pw = document.getElementById('password');
+  const err = document.getElementById('error');
+  const btn = document.getElementById('submit');
+  const toggle = document.getElementById('toggle');
+
+  toggle.onclick = () => {
+    const show = pw.type === 'password';
+    pw.type = show ? 'text' : 'password';
+    toggle.textContent = show ? '隐藏' : '显示';
+  };
+  pw.oninput = () => err.classList.remove('show');
+
+  form.onsubmit = async (e) => {
+    e.preventDefault();
+    err.classList.remove('show');
+    btn.disabled = true;
+    btn.textContent = '验证中…';
+    try {
+      const res = await fetch('login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password: pw.value }),
+      });
+      if (res.ok) {
+        location.href = './';
+      } else {
+        err.classList.add('show');
+        pw.select();
+      }
+    } catch {
+      err.textContent = '网络异常，请重试';
+      err.classList.add('show');
+    }
+    btn.disabled = false;
+    btn.textContent = '进入看板';
+  };
+</script>
+</body>
+</html>
