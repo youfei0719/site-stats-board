@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>网站数据看板</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="page">
+
+  <header class="topbar">
+    <div class="title">网站数据看板</div>
+    <div class="controls">
+      <div class="segmented" id="site-seg" role="tablist" aria-label="站点"></div>
+      <div class="segmented" id="range-seg" role="tablist" aria-label="时间范围">
+        <button data-range="today" class="active">今日</button>
+        <button data-range="yesterday">昨日</button>
+        <button data-range="7d">近 7 天</button>
+        <button data-range="30d">近 30 天</button>
+      </div>
+    </div>
+  </header>
+
+  <section class="kpis" id="kpis">
+    <div class="kpi">
+      <div class="kpi-label">访客数</div>
+      <div class="kpi-row"><span class="kpi-value" id="kpi-visitors">—</span><span class="delta flat" id="d-visitors">—</span></div>
+      <div class="kpi-hint" id="h-visitors"></div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-label">浏览量</div>
+      <div class="kpi-row"><span class="kpi-value" id="kpi-pageviews">—</span><span class="delta flat" id="d-pageviews">—</span></div>
+      <div class="kpi-hint" id="h-pageviews"></div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-label">访问次数</div>
+      <div class="kpi-row"><span class="kpi-value" id="kpi-visits">—</span><span class="delta flat" id="d-visits">—</span></div>
+      <div class="kpi-hint" id="h-visits"></div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-label">跳出率</div>
+      <div class="kpi-row"><span class="kpi-value" id="kpi-bounce">—</span><span class="delta flat" id="d-bounce">—</span></div>
+      <div class="kpi-hint" id="h-bounce"></div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-label">平均停留</div>
+      <div class="kpi-row"><span class="kpi-value" id="kpi-duration">—</span></div>
+      <div class="kpi-hint" id="h-duration"></div>
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="card-title">访问趋势</div>
+    <div class="chart-legend">
+      <span><span class="legend-dot" style="background:#0a0a0a"></span>浏览量</span>
+      <span><span class="legend-dot" style="background:#a1a1a1"></span>访问次数</span>
+    </div>
+    <div id="trend-chart"></div>
+  </section>
+
+  <section class="card">
+    <div class="card-title">明细</div>
+    <div class="tabs" id="breakdown-tabs">
+      <button data-type="url" class="active">热门页面</button>
+      <button data-type="referrer">来源</button>
+      <button data-type="browser">浏览器</button>
+      <button data-type="os">系统</button>
+      <button data-type="device">设备</button>
+      <button data-type="country">国家</button>
+    </div>
+    <div id="breakdown-body"></div>
+  </section>
+
+  <section class="card">
+    <div class="realtime">
+      <span class="live-dot"></span>
+      <div>
+        <span class="realtime-value" id="realtime-value">—</span>
+        <div class="realtime-label">当前在线访客</div>
+      </div>
+    </div>
+  </section>
+
+  <div class="footer">数据更新于 <span id="updated-at">—</span></div>
+
+</div>
+<script src="vendor/echarts.min.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

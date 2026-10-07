@@ -1,0 +1,1 @@
+{"dependencies":{"express":"^4.21.2"},"description":"中文网站数据看板（数据引擎：Umami v3 HTTP API）","engines":{"node":">=18"},"license":"MIT","main":"server.js","name":"site-stats-board","private":true,"scripts":{"start":"node server.js"},"version":"1.0.0"}
