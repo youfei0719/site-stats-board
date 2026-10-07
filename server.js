@@ -8,6 +8,7 @@
 const express = require('express');
 const path = require('path');
 const fs = require('fs');
+const crypto = require('crypto');
 
 // ---------- 1. 读取 .env（极简解析，不额外引入 dotenv 依赖） ----------
 function loadEnv(file) {
@@ -124,6 +125,80 @@ const app = express();
 // 健康检查（给 systemd / nginx 用）
 app.get('/healthz', (_req, res) => res.json({ ok: true }));
 
+// ---------- 应用层登录 ----------
+const AUTH_FILE = path.join(__dirname, '.auth.json');
+let AUTH = null;
+try {
+  const _a = JSON.parse(fs.readFileSync(AUTH_FILE, 'utf8'));
+  if (_a.salt && _a.hash && _a.secret) AUTH = _a;
+} catch (e) { AUTH = null; }
+const SESSION_TTL = 7 * 86400e3;
+function parseCookies(req) {
+  const out = {};
+  const h = req.headers.cookie;
+  if (!h) return out;
+  for (const part of h.split(';')) {
+    const i = part.indexOf('=');
+    if (i > 0) out[part.slice(0, i).trim()] = decodeURIComponent(part.slice(i + 1).trim());
+  }
+  return out;
+}
+function verifyPassword(pw) {
+  if (!AUTH || typeof pw !== 'string' || !pw) return false;
+  try {
+    const h = crypto.scryptSync(pw, Buffer.from(AUTH.salt, 'hex'), 64);
+    const e = Buffer.from(AUTH.hash, 'hex');
+    if (h.length !== e.length) return false;
+    return crypto.timingSafeEqual(h, e);
+  } catch (err) { return false; }
+}
+function signSession(expiry) {
+  const mac = crypto.createHmac('sha256', Buffer.from(AUTH.secret, 'hex'));
+  mac.update(String(expiry));
+  return expiry + '.' + mac.digest('hex');
+}
+function checkSession(req) {
+  if (!AUTH) return false;
+  const tok = parseCookies(req).stats_session;
+  if (typeof tok !== 'string' || !tok) return false;
+  const i = tok.lastIndexOf('.');
+  if (i < 0) return false;
+  const expiry = Number(tok.slice(0, i));
+  if (!Number.isFinite(expiry) || expiry < Date.now()) return false;
+  return tok === signSession(expiry);
+}
+function checkBasic(req) {
+  const h = req.headers.authorization || '';
+  if (!h.startsWith('Basic ')) return false;
+  let decoded = '';
+  try { decoded = Buffer.from(h.slice(6), 'base64').toString('utf8'); } catch (err) { return false; }
+  const i = decoded.indexOf(':');
+  const pw = i >= 0 ? decoded.slice(i + 1) : decoded;
+  return verifyPassword(pw);
+}
+function checkAuth(req) { return checkSession(req) || checkBasic(req); }
+// 登录鉴权中间件（所有路由之前；/login 与 login.html 放行）
+const AUTH_PUBLIC = new Set(['/login', '/login.html', '/logout']);
+app.use((req, res, next) => {
+  if (AUTH_PUBLIC.has(req.path)) return next();
+  if (checkAuth(req)) return next();
+  if (req.path.startsWith('/api/')) return res.status(401).json({ error: 'unauthorized' });
+  return res.sendFile(path.join(__dirname, 'public', 'login.html'));
+});
+app.post('/login', express.json(), (req, res) => {
+  const pw = req.body && req.body.password;
+  if (!verifyPassword(pw)) return res.status(401).json({ error: '密码不正确' });
+  const expiry = Date.now() + SESSION_TTL;
+  res.cookie('stats_session', signSession(expiry), {
+    httpOnly: true, secure: true, sameSite: 'lax', path: '/stats/', maxAge: SESSION_TTL,
+  });
+  res.json({ ok: true });
+});
+app.post('/logout', (req, res) => {
+  res.clearCookie('stats_session', { path: '/stats/' });
+  res.json({ ok: true });
+});
+
 // 站点清单
 app.get('/api/sites', (_req, res) => {
   res.json(SITES.map((s) => ({ id: s.id, name: s.name })));
@@ -133,13 +208,21 @@ app.get('/api/sites', (_req, res) => {
 app.get('/api/overview', async (req, res) => {
   try {
     const site = findSite(req.query.site);
-    const { start, end } = resolveRange(req.query.range);
+    const range = req.query.range || 'today';
+    const { start, end } = resolveRange(range);
     const dur = end - start;
+
+    // 上一周期：today 用昨日同时刻对齐（等时长），避免拿今天几小时对比昨天一整天
+    let prevStart = start - dur, prevEnd = start;
+    if (range === 'today') {
+      prevStart = start - 86400e3;
+      prevEnd = prevStart + Math.min(Date.now() - start, 86400e3);
+    }
 
     // 当前周期与上一周期并行取数
     const [cur, prev] = await Promise.all([
       umami(`/websites/${site.id}/stats`, { startAt: start, endAt: end }),
-      umami(`/websites/${site.id}/stats`, { startAt: start - dur, endAt: start }),
+      umami(`/websites/${site.id}/stats`, { startAt: prevStart, endAt: prevEnd }),
     ]);
 
     const visitors = num(cur.visitors);
@@ -151,6 +234,7 @@ app.get('/api/overview', async (req, res) => {
     const bounceRate = visits > 0 ? bounces / visits : 0; // 跳出率（小数）
     const avgDuration = visits > 0 ? totaltime / visits : 0; // 平均停留（秒）
     const prevBounceRate = num(prev.visits) > 0 ? num(prev.bounces) / num(prev.visits) : 0;
+    const prevAvgDuration = num(prev.visits) > 0 ? num(prev.totaltime) / num(prev.visits) : 0;
 
     res.json({
       site: site.name,
@@ -170,6 +254,7 @@ app.get('/api/overview', async (req, res) => {
         visits: pctChange(visits, num(prev.visits)),
         pageviews: pctChange(pageviews, num(prev.pageviews)),
         bounceRate: bounceRate - prevBounceRate, // 百分点变化
+        duration: pctChange(avgDuration, prevAvgDuration),
       },
       updatedAt: Date.now(),
     });

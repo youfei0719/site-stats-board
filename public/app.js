@@ -80,6 +80,7 @@ function setDeltaDiff(id, diff, suffix) {
 // ---------- 接口 ----------
 async function api(path) {
   const res = await fetch(path);
+  if (res.status === 401) { location.href = 'login.html'; throw new Error('未登录'); }
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || ('请求失败 ' + res.status));
   return data;
@@ -253,11 +254,12 @@ async function loadOverview() {
   setDelta('d-pageviews', d.delta.pageviews);
   setDelta('d-visits', d.delta.visits);
   setDeltaPp('d-bounce', d.delta.bounceRate);
-  $('d-duration').className = 'delta flat'; $('d-duration').textContent = '—';
+  setDelta('d-duration', d.delta.duration);
   setDeltaDiff('d-avgPages', d.prev.visits > 0 ? avgPages - prevAvgPages : null, '页');
-  $('h-visitors').textContent = '上一周期：' + fmtInt(d.prev.visitors);
-  $('h-pageviews').textContent = '上一周期：' + fmtInt(d.prev.pageviews);
-  $('h-visits').textContent = '上一周期：' + fmtInt(d.prev.visits);
+  const prevLabel = state.range === 'today' ? '昨日此时：' : '上一周期：';
+  $('h-visitors').textContent = prevLabel + fmtInt(d.prev.visitors);
+  $('h-pageviews').textContent = prevLabel + fmtInt(d.prev.pageviews);
+  $('h-visits').textContent = prevLabel + fmtInt(d.prev.visits);
   $('h-bounce').textContent = '按访问次数计算';
   $('h-duration').textContent = '总停留 ÷ 访问次数';
   $('h-avgPages').textContent = '浏览量 ÷ 访问次数';
@@ -451,6 +453,9 @@ async function init() {
   $('nav').querySelectorAll('button').forEach((b) => {
     b.onclick = () => showView(b.dataset.view);
   });
+  $('rt-strip').style.cursor = 'pointer';
+  $('rt-strip').title = '查看实时访客';
+  $('rt-strip').onclick = () => showView('realtime');
 
   wireTabs($('ov-metric-tabs'), 'm', state.ovMetric, (v) => { state.ovMetric = v; loadOverview().catch((e) => console.error(e)); });
   wireTabs($('tf-metric-tabs'), 'm', state.tfMetric, (v) => { state.tfMetric = v; loadTraffic().catch((e) => console.error(e)); });
@@ -474,6 +479,8 @@ async function init() {
     else if (state.view === 'realtime') loadRealtime().catch((e) => console.error(e));
   }, 30000);
 
+  const lb = $('logout-btn');
+  if (lb) lb.onclick = async () => { try { await fetch('logout', { method: 'POST' }); } catch (e) {} location.href = 'login.html'; };
   addEventListener('resize', resizeCharts);
 }
 
