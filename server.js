@@ -205,10 +205,7 @@ app.get('/api/sites', (_req, res) => {
 });
 
 // 总览：KPI + 环比（与上一周期对比）
-// ---------- 自流量识别：/stats/* 是看板自身的访问 ----------
-function isSelfTraffic(path) {
-  return String(path || '').startsWith('/stats/');
-}
+// ---------- 总览 ----------
 
 app.get('/api/overview', async (req, res) => {
   try {
@@ -224,11 +221,11 @@ app.get('/api/overview', async (req, res) => {
       prevEnd = prevStart + Math.min(Date.now() - start, 86400e3);
     }
 
-    // 当前周期与上一周期并行取数 + 路径明细（用于分离自流量）
-    const [cur, prev, pathRows] = await Promise.all([
+    // 当前周期与上一周期并行取数 + 标题明细（用于分离自流量）
+    const [cur, prev, titleRows] = await Promise.all([
       umami(`/websites/${site.id}/stats`, { startAt: start, endAt: end }),
       umami(`/websites/${site.id}/stats`, { startAt: prevStart, endAt: prevEnd }),
-      fetchMetrics(site.id, 'path', start, end).catch(() => []),
+      fetchMetrics(site.id, 'title', start, end).catch(() => []),
     ]);
 
     const visitors = num(cur.visitors);
@@ -237,10 +234,12 @@ app.get('/api/overview', async (req, res) => {
     const bounces = num(cur.bounces);
     const totaltime = num(cur.totaltime);
 
-    // 自流量浏览量（/stats/* 路径合计）
+    // 自流量浏览量（看板自身标题合计）
+    const isSelfTitle = (n) => String(n || '').includes('网站数据看板') || n === '401 Authorization Required';
     let selfPageviews = 0;
-    for (const r of pathRows) {
-      if (isSelfTraffic(r.x)) selfPageviews += num(r.pageviews ?? r.y);
+    for (const r of titleRows) {
+      const name = String(r.name ?? r.x ?? '');
+      if (isSelfTitle(name)) selfPageviews += num(r.pageviews ?? r.y);
     }
     const realPageviews = Math.max(0, pageviews - selfPageviews);
 
