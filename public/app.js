@@ -241,11 +241,13 @@ function buildKpis() {
 // 总览
 async function loadOverview() {
   const d = await api('api/overview?' + q({ site: state.site, range: state.range }));
-  const avgPages = d.visits > 0 ? d.pageviews / d.visits : 0;
+  const realPv = d.realPageviews ?? d.pageviews;
+  const selfPv = d.selfPageviews ?? 0;
+  const avgPages = d.visits > 0 ? realPv / d.visits : 0;
   const prevAvgPages = d.prev.visits > 0 ? d.prev.pageviews / d.prev.visits : 0;
 
   rollNumber($('kpi-visitors'), d.visitors, fmtInt);
-  rollNumber($('kpi-pageviews'), d.pageviews, fmtInt);
+  rollNumber($('kpi-pageviews'), realPv, fmtInt);
   rollNumber($('kpi-visits'), d.visits, fmtInt);
   rollNumber($('kpi-bounce'), d.bounceRate, fmtPct);
   rollNumber($('kpi-duration'), d.avgDuration, fmtDuration);
@@ -258,7 +260,9 @@ async function loadOverview() {
   setDeltaDiff('d-avgPages', d.prev.visits > 0 ? avgPages - prevAvgPages : null, '页');
   const prevLabel = state.range === 'today' ? '昨日此时：' : '上一周期：';
   $('h-visitors').textContent = prevLabel + fmtInt(d.prev.visitors);
-  $('h-pageviews').textContent = prevLabel + fmtInt(d.prev.pageviews);
+  $('h-pageviews').textContent = selfPv > 0
+    ? `已排除看板自流量 ${fmtInt(selfPv)} 次`
+    : prevLabel + fmtInt(d.prev.pageviews);
   $('h-visits').textContent = prevLabel + fmtInt(d.prev.visits);
   $('h-bounce').textContent = '按访问次数计算';
   $('h-duration').textContent = '总停留 ÷ 访问次数';
@@ -363,7 +367,12 @@ async function loadSource() {
 // 页面分析
 async function loadPages() {
   const d = await api('api/pages?' + q({ site: state.site, range: state.range }));
-  $('pages-table').innerHTML = breakdownTable(d.items, '页面');
+  let html = breakdownTable(d.items, '页面');
+  if (d.selfItems && d.selfItems.length) {
+    html += `<div class="card-title" style="margin-top:16px">看板自流量（已从上方排除）</div>`
+      + breakdownTable(d.selfItems, '页面');
+  }
+  $('pages-table').innerHTML = html;
 }
 
 // 访客分析

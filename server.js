@@ -205,6 +205,11 @@ app.get('/api/sites', (_req, res) => {
 });
 
 // 总览：KPI + 环比（与上一周期对比）
+// ---------- 自流量识别：/stats/* 是看板自身的访问 ----------
+function isSelfTraffic(path) {
+  return String(path || '').startsWith('/stats/');
+}
+
 app.get('/api/overview', async (req, res) => {
   try {
     const site = findSite(req.query.site);
@@ -219,10 +224,11 @@ app.get('/api/overview', async (req, res) => {
       prevEnd = prevStart + Math.min(Date.now() - start, 86400e3);
     }
 
-    // 当前周期与上一周期并行取数
-    const [cur, prev] = await Promise.all([
+    // 当前周期与上一周期并行取数 + 路径明细（用于分离自流量）
+    const [cur, prev, pathRows] = await Promise.all([
       umami(`/websites/${site.id}/stats`, { startAt: start, endAt: end }),
       umami(`/websites/${site.id}/stats`, { startAt: prevStart, endAt: prevEnd }),
+      fetchMetrics(site.id, 'path', start, end).catch(() => []),
     ]);
 
     const visitors = num(cur.visitors);
@@ -230,6 +236,13 @@ app.get('/api/overview', async (req, res) => {
     const pageviews = num(cur.pageviews);
     const bounces = num(cur.bounces);
     const totaltime = num(cur.totaltime);
+
+    // 自流量浏览量（/stats/* 路径合计）
+    let selfPageviews = 0;
+    for (const r of pathRows) {
+      if (isSelfTraffic(r.x)) selfPageviews += num(r.pageviews ?? r.y);
+    }
+    const realPageviews = Math.max(0, pageviews - selfPageviews);
 
     const bounceRate = visits > 0 ? bounces / visits : 0; // 跳出率（小数）
     const avgDuration = visits > 0 ? totaltime / visits : 0; // 平均停留（秒）
@@ -244,6 +257,8 @@ app.get('/api/overview', async (req, res) => {
       bounces,
       bounceRate,
       avgDuration,
+      selfPageviews,
+      realPageviews,
       prev: {
         visitors: num(prev.visitors),
         visits: num(prev.visits),
@@ -519,15 +534,18 @@ app.get('/api/pages', async (req, res) => {
     const site = findSite(req.query.site);
     const { start, end } = resolveRange(req.query.range);
     const rows = await fetchMetrics(site.id, 'title', start, end);
-    const items = rows
+    const all = rows
       .map((r) => ({
         name: String(r.name ?? r.x ?? ''), // v3 expanded 维度值在 name 字段
         pageviews: num(r.pageviews ?? r.y),
         visitors: num(r.visitors),
       }))
-      .filter((it) => it.name && /[.](css|js|png|jpg|svg|ico|woff2)$/i.test(it.name) === false)
-      .slice(0, 20);
-    res.json({ site: site.name, items, updatedAt: Date.now() });
+      .filter((it) => it.name && /[.](css|js|png|jpg|svg|ico|woff2)$/i.test(it.name) === false);
+    // 自流量：看板自身的页面标题（含"网站数据看板"）+ API 401 标题，单独列出
+    const isSelfTitle = (n) => n.includes('网站数据看板') || n === '401 Authorization Required';
+    const selfItems = all.filter((i) => isSelfTitle(i.name)).slice(0, 20);
+    const items = all.filter((i) => !isSelfTitle(i.name)).slice(0, 20);
+    res.json({ site: site.name, items, selfItems, updatedAt: Date.now() });
   } catch (e) {
     res.status(502).json({ error: e.message });
   }
