@@ -219,14 +219,14 @@ function wireTabs(el, attr, current, onPick) {
   });
 }
 
-// ---------- KPI 卡（6 张，BoardUI 最新 Stat Cards 式：彩色图标块 + 大数字 + 增量胶囊）----------
+// ---------- KPI 卡（4 张，BoardUI 模板式：只放最核心的）----------
+// 产品逻辑：总览只回答"网站现在怎么样"——访客数（人）、浏览量（量）、跳出率（质量）、平均停留（粘性）
+// 访问次数、平均访问页数移到流量分析去做深度解读
 const KPI_DEFS = [
   { id: 'visitors', label: '访客数', fmt: fmtInt, icon: '👥', color: '#2dd4bf', bg: '#ccfbf1' },
   { id: 'pageviews', label: '浏览量', fmt: fmtInt, icon: '👁️', color: '#60a5fa', bg: '#dbeafe' },
-  { id: 'visits', label: '访问次数', fmt: fmtInt, icon: '🔄', color: '#c084fc', bg: '#f3e8ff' },
   { id: 'bounce', label: '跳出率', fmt: fmtPct, invert: true, hint: '按访问次数计算', icon: '📤', color: '#f472b6', bg: '#fce7f3' },
   { id: 'duration', label: '平均停留', fmt: fmtDuration, hint: '总停留 ÷ 访问次数', icon: '⏱️', color: '#facc15', bg: '#fef9c3' },
-  { id: 'avgPages', label: '平均访问页数', fmt: (v) => v.toFixed(1), hint: '浏览量 ÷ 访问次数', icon: '📄', color: '#34d399', bg: '#d1fae5' },
 ];
 function buildKpis() {
   $('kpis').innerHTML = KPI_DEFS.map((k) => `
@@ -243,27 +243,20 @@ async function loadOverview() {
   const d = await api('api/overview?' + q({ site: state.site, range: state.range }));
   const realPv = d.realPageviews ?? d.pageviews;
   const selfPv = d.selfPageviews ?? 0;
-  const avgPages = d.visits > 0 ? realPv / d.visits : 0;
-  const prevAvgPages = d.prev.visits > 0 ? d.prev.pageviews / d.prev.visits : 0;
 
   rollNumber($('kpi-visitors'), d.visitors, fmtInt);
   rollNumber($('kpi-pageviews'), realPv, fmtInt);
-  rollNumber($('kpi-visits'), d.visits, fmtInt);
   rollNumber($('kpi-bounce'), d.bounceRate, fmtPct);
   rollNumber($('kpi-duration'), d.avgDuration, fmtDuration);
-  rollNumber($('kpi-avgPages'), avgPages, (v) => v.toFixed(1));
   setDelta('d-visitors', d.delta.visitors);
   setDelta('d-pageviews', d.delta.pageviews);
-  setDelta('d-visits', d.delta.visits);
   setDeltaPp('d-bounce', d.delta.bounceRate);
   setDelta('d-duration', d.delta.duration);
-  setDeltaDiff('d-avgPages', d.prev.visits > 0 ? avgPages - prevAvgPages : null, '页');
   const prevLabel = state.range === 'today' ? '昨日此时：' : '上一周期：';
   $('h-visitors').textContent = prevLabel + fmtInt(d.prev.visitors);
   $('h-pageviews').textContent = selfPv > 0
     ? `已排除看板自流量 ${fmtInt(selfPv)} 次`
     : prevLabel + fmtInt(d.prev.pageviews);
-  $('h-visits').textContent = prevLabel + fmtInt(d.prev.visits);
   $('h-bounce').textContent = '按访问次数计算';
   $('h-duration').textContent = '总停留 ÷ 访问次数';
   $('h-avgPages').textContent = '浏览量 ÷ 访问次数';

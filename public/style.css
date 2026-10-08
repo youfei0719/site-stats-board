@@ -59,9 +59,10 @@ body {
 /* ---------- 卡片 ---------- */
 .card {
   background: var(--card); border-radius: var(--radius);
-  box-shadow: var(--shadow); padding: 20px; margin-bottom: 16px;
+  box-shadow: var(--shadow); padding: 24px; margin-bottom: 20px;
+  border: 1px solid var(--border);
 }
-.card-title { font-size: 14px; font-weight: 600; margin-bottom: 4px; }
+.card-title { font-size: 15px; font-weight: 600; margin-bottom: 16px; letter-spacing: 0.1px; }
 .card-sub { font-size: 12px; color: var(--text-3); margin-bottom: 12px; }
 
 /* ---------- KPI 卡片行 ---------- */
@@ -212,7 +213,7 @@ td.name { max-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: 
 .grid-2 > .card, .grid-3 > .card { margin-bottom: 0; }
 
 /* KPI 六卡（Plausible 式一行） */
-.kpis-6 { grid-template-columns: repeat(6, 1fr); }
+.kpis-4 { grid-template-columns: repeat(4, 1fr); }
 
 /* 图表容器 */
 .chart { width: 100%; height: 320px; }
@@ -233,7 +234,7 @@ td.name { max-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: 
 
 /* ---------- v2 响应式 ---------- */
 @media (max-width: 1100px) {
-  .kpis-6 { grid-template-columns: repeat(3, 1fr); }
+  .kpis-4 { grid-template-columns: repeat(2, 1fr); }
   .grid-3 { grid-template-columns: 1fr; }
 }
 @media (max-width: 900px) {
@@ -250,7 +251,7 @@ td.name { max-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: 
   .nav { flex-direction: row; overflow-x: auto; }
   .nav button { white-space: nowrap; }
   .side-foot { display: none; }
-  .kpis-6 { grid-template-columns: repeat(2, 1fr); }
+  .kpis-4 { grid-template-columns: repeat(2, 1fr); }
   .main { padding: 20px 16px 32px; }
 }
 
