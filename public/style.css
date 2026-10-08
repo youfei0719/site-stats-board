@@ -74,7 +74,13 @@ body {
   box-shadow: var(--shadow); padding: 18px 20px; min-height: 118px;
   display: flex; flex-direction: column; justify-content: space-between;
 }
-.kpi-label { font-size: 13px; color: var(--text-2); margin-bottom: 8px; }
+.kpi-top { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+.kpi-icon {
+  width: 32px; height: 32px; border-radius: 8px;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 16px; flex-shrink: 0;
+}
+.kpi-label { font-size: 13px; color: var(--text-2); }
 .kpi-row { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
 .kpi-value {
   font-family: var(--font-mono); font-size: 30px; font-weight: 600;
@@ -158,12 +164,13 @@ td.name { max-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: 
 .app { display: flex; min-height: 100vh; }
 
 .sidebar {
-  width: 216px; flex-shrink: 0;
-  padding: 24px 12px;
-  position: sticky; top: 0; height: 100vh;
+  width: 260px; flex-shrink: 0;
+  margin: 16px 0 16px 16px; padding: 20px 12px;
+  position: sticky; top: 16px; height: calc(100vh - 32px);
   display: flex; flex-direction: column;
-  border-right: 1px solid var(--border);
-  background: var(--bg);
+  background: var(--card);
+  border-radius: 20px; /* BoardUI 最新：浮动圆角面板 */
+  box-shadow: 0 4px 16px 0 rgba(0, 0, 0, 0.06);
 }
 .brand { font-size: 16px; font-weight: 600; padding: 0 12px; margin-bottom: 20px; letter-spacing: 0.2px; }
 .nav { display: flex; flex-direction: column; gap: 2px; flex: 1; }

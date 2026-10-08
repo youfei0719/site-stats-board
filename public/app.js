@@ -176,8 +176,8 @@ function trendOption(points, prevPoints, metric, unit, showPrev) {
     name: METRIC_NAMES[metric], type: 'line',
     data: points.map((p) => p[metric] || 0),
     smooth: true, symbol: 'none',
-    lineStyle: { color: '#0a0a0a', width: 2 },
-    areaStyle: { color: 'rgba(10,10,10,0.05)' },
+    lineStyle: { color: '#2dd4bf', width: 2 },
+    areaStyle: { color: 'rgba(45,212,191,0.08)' },
   }];
   if (showPrev && prevPoints && prevPoints.length) {
     // 按索引对齐上期（桶数量一致时即为同期对比）
@@ -219,19 +219,19 @@ function wireTabs(el, attr, current, onPick) {
   });
 }
 
-// ---------- KPI 卡（6 张，Plausible 式一行）----------
+// ---------- KPI 卡（6 张，BoardUI 最新 Stat Cards 式：彩色图标块 + 大数字 + 增量胶囊）----------
 const KPI_DEFS = [
-  { id: 'visitors', label: '访客数', fmt: fmtInt },
-  { id: 'pageviews', label: '浏览量', fmt: fmtInt },
-  { id: 'visits', label: '访问次数', fmt: fmtInt },
-  { id: 'bounce', label: '跳出率', fmt: fmtPct, invert: true, hint: '按访问次数计算' },
-  { id: 'duration', label: '平均停留', fmt: fmtDuration, hint: '总停留 ÷ 访问次数' },
-  { id: 'avgPages', label: '平均访问页数', fmt: (v) => v.toFixed(1), hint: '浏览量 ÷ 访问次数' },
+  { id: 'visitors', label: '访客数', fmt: fmtInt, icon: '👥', color: '#2dd4bf', bg: '#ccfbf1' },
+  { id: 'pageviews', label: '浏览量', fmt: fmtInt, icon: '👁️', color: '#60a5fa', bg: '#dbeafe' },
+  { id: 'visits', label: '访问次数', fmt: fmtInt, icon: '🔄', color: '#c084fc', bg: '#f3e8ff' },
+  { id: 'bounce', label: '跳出率', fmt: fmtPct, invert: true, hint: '按访问次数计算', icon: '📤', color: '#f472b6', bg: '#fce7f3' },
+  { id: 'duration', label: '平均停留', fmt: fmtDuration, hint: '总停留 ÷ 访问次数', icon: '⏱️', color: '#facc15', bg: '#fef9c3' },
+  { id: 'avgPages', label: '平均访问页数', fmt: (v) => v.toFixed(1), hint: '浏览量 ÷ 访问次数', icon: '📄', color: '#34d399', bg: '#d1fae5' },
 ];
 function buildKpis() {
   $('kpis').innerHTML = KPI_DEFS.map((k) => `
     <div class="kpi">
-      <div class="kpi-label">${k.label}</div>
+      <div class="kpi-top"><span class="kpi-icon" style="background:${k.bg};color:${k.color}">${k.icon}</span><span class="kpi-label">${k.label}</span></div>
       <div class="kpi-row"><span class="kpi-value" id="kpi-${k.id}">—</span><span class="delta flat" id="d-${k.id}">—</span></div>
       <div class="kpi-hint" id="h-${k.id}"></div>
     </div>`).join('');
@@ -328,14 +328,15 @@ async function loadTraffic() {
     series: [{
       type: 'bar',
       data: h.hours.map((x) => x.pageviews),
-      itemStyle: { color: '#262626', borderRadius: [3, 3, 0, 0] },
+      itemStyle: { color: '#2dd4bf', borderRadius: [3, 3, 0, 0] },
       barWidth: '62%',
     }],
   }, true);
 }
 
-// 来源分析
-const DONUT_PALETTE = ['#0a0a0a', '#404040', '#8a8a8a', '#c9c9c9'];
+// 来源分析：BoardUI 最新图表 8 色调色板（teal/lime/pink/sky/purple/blue/emerald/yellow）
+const DONUT_PALETTE = ['#2dd4bf', '#a3e635', '#f472b6', '#38bdf8', '#c084fc', '#60a5fa', '#34d399', '#facc15'];
+const CHART_ACCENT = '#2dd4bf'; // 主强调色 teal
 async function loadSource() {
   const d = await api('api/channel?' + q({ site: state.site, range: state.range }));
   getChart('channel-donut').setOption({
