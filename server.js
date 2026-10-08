@@ -178,7 +178,7 @@ function checkBasic(req) {
 }
 function checkAuth(req) { return checkSession(req) || checkBasic(req); }
 // 登录鉴权中间件（所有路由之前；/login 与 login.html 放行）
-const AUTH_PUBLIC = new Set(['/login', '/login.html', '/logout']);
+const AUTH_PUBLIC = new Set(['/login', '/login.html', '/login.js', '/logout']);
 app.use((req, res, next) => {
   if (AUTH_PUBLIC.has(req.path)) return next();
   if (checkAuth(req)) return next();
