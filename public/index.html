@@ -41,7 +41,7 @@
 
     <!-- 总览：Plausible 节奏 —— KPI 条 → 大趋势图（指标切换）→ 明细双表 → 实时条 -->
     <section class="view" id="view-overview">
-      <div class="kpis kpis-4" id="kpis"></div>
+      <div class="kpis kpis-6" id="kpis"></div>
       <div class="card">
         <div class="card-head">
           <div class="card-title">访问趋势</div>
@@ -99,15 +99,17 @@
       </div>
     </section>
 
-    <!-- 来源分析：产品逻辑——先看构成（图），再看明细（表），最后看下钻（域名/引擎） -->
+    <!-- 来源分析：百度渠道分组＋友盟式密报表 -->
     <section class="view hidden" id="view-source">
-      <div class="card">
-        <div class="card-title">渠道构成</div>
-        <div class="chart chart-sm" id="channel-donut"></div>
-      </div>
-      <div class="card">
-        <div class="card-title">渠道明细</div>
-        <div id="channel-table"></div>
+      <div class="grid-2">
+        <div class="card">
+          <div class="card-title">渠道构成</div>
+          <div class="chart chart-sm" id="channel-donut"></div>
+        </div>
+        <div class="card">
+          <div class="card-title">渠道明细</div>
+          <div id="channel-table"></div>
+        </div>
       </div>
       <div class="card">
         <div class="card-title">来源域名</div>
